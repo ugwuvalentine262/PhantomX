@@ -4,16 +4,7 @@
 // of the intersection of the selected sets.
 
 #include <algorithm>
-#include <bit>
-#include <chrono>
-#include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <iostream>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <vector>
 
 #include "objective.hpp"
 
@@ -22,28 +13,12 @@ namespace PhantomX::Objective {
 // One DP state: the intersection so far plus the cells that produced it.
 struct State {
     std::vector<int> commonElements;
-    std::vector<coordinate> selectedIndices;
+    coordinates selectedIndices;
 };
-
-// Columns are tracked in a bitmask; the DP table has 2^m buckets, so cap m.
-constexpr std::size_t kMaxColumns = 20;
 
 // ===================================================================
 // Helpers: sorted-set operations
 // ===================================================================
-
-// Two-pointer intersection, O(|a| + |b|). Inputs sorted & distinct => output too.
-inline IntSet intersectSorted(const IntSet& a, const IntSet& b) {
-    IntSet out;
-    out.reserve(std::min(a.size(), b.size()));
-    std::size_t i = 0, j = 0;
-    while (i < a.size() && j < b.size()) {
-        if (a[i] < b[j]) ++i;
-        else if (b[j] < a[i]) ++j;
-        else { out.push_back(a[i]); ++i; ++j; }
-    }
-    return out;
-}
 
 // Returns true iff every element of `small` is in `big`. O(|small| + |big|).
 inline bool isSubset(const IntSet& small, const IntSet& big) {
@@ -82,41 +57,11 @@ inline bool insertWithDominance(std::vector<State>& bucket, State&& candidate) {
 }
 
 // ===================================================================
-// Input validation
-// ===================================================================
-
-// Returns the column count. Throws std::invalid_argument on malformed input.
-inline std::size_t validateInput(const Matrix& matrix, int k) {
-    if (matrix.empty()) throw std::invalid_argument("matrix has no rows");
-    const std::size_t columns = matrix[0].size();
-    if (columns == 0) throw std::invalid_argument("matrix has no columns");
-    if (columns > kMaxColumns)
-        throw std::invalid_argument("too many columns for bitmask DP (max " +
-                                    std::to_string(kMaxColumns) + ")");
-    for (std::size_t r = 0; r < matrix.size(); ++r) {
-        if (matrix[r].size() != columns)
-            throw std::invalid_argument("ragged matrix: row " + std::to_string(r));
-        for (std::size_t c = 0; c < columns; ++c) {
-            const IntSet& s = matrix[r][c];
-            for (std::size_t i = 0; i < s.size(); ++i) {
-                if (s[i] < 0) throw std::invalid_argument("negative element");
-                if (i > 0 && s[i] == s[i - 1]) throw std::invalid_argument("duplicate element in set");
-                if (i > 0 && s[i] < s[i - 1]) throw std::invalid_argument("set is not sorted ascending");
-            }
-        }
-    }
-    if (k < 1) throw std::invalid_argument("k must be >= 1");
-    if (static_cast<std::size_t>(k) > std::min(matrix.size(), columns))
-        throw std::invalid_argument("k exceeds min(rows, columns)");
-    return columns;
-}
-
-// ===================================================================
 // Optimized bitmask DP solver
 // ===================================================================
 
 inline Result solve(const Matrix& matrix, int k) {
-    const std::size_t columns = validateInput(matrix, k);
+    const std::size_t columns = matrix[0].size();
     const std::size_t rows = matrix.size();
     const std::uint32_t maskCount = std::uint32_t{1} << columns;  // columns <= 20: no overflow
     const int target = k;
@@ -153,7 +98,7 @@ inline Result solve(const Matrix& matrix, int k) {
                         State fresh;
                         // First selection is handled explicitly: its set IS the intersection.
                         fresh.commonElements =
-                            (picked == 0) ? cell : intersectSorted(state.commonElements, cell);
+                            (picked == 0) ? cell : state.commonElements & cell;
                         fresh.selectedIndices = state.selectedIndices;
                         fresh.selectedIndices.emplace_back(static_cast<int>(row),
                                                            static_cast<int>(col));
@@ -199,14 +144,14 @@ inline Result solve(const Matrix& matrix, int k) {
 namespace brute {
 
 inline void enumerate(const Matrix& matrix, int k, std::size_t row, std::uint32_t usedColumns,
-                      int picked, std::vector<coordinate>& chosen, Result& best, bool& haveBest) {
+                      int picked, coordinates& chosen, Result& best, bool& haveBest) {
     const int rowsLeft = static_cast<int>(matrix.size() - row);
     if (picked + rowsLeft < k) return;
     if (picked == k) {
         // Recompute the intersection from scratch with a naive membership test.
-        IntSet common = matrix[chosen[0].row][chosen[0].col];
+        IntSet common = matrix[chosen[0].x][chosen[0].y];
         for (std::size_t i = 1; i < chosen.size(); ++i) {
-            const IntSet& other = matrix[chosen[i].row][chosen[i].col];
+            const IntSet& other = matrix[chosen[i].x][chosen[i].y];
             IntSet kept;
             for (int v : common)
                 if (std::find(other.begin(), other.end(), v) != other.end()) kept.push_back(v);
@@ -234,7 +179,7 @@ inline void enumerate(const Matrix& matrix, int k, std::size_t row, std::uint32_
 Result solve(const Matrix& matrix, int k) {
     Result best;
     bool haveBest = false;
-    std::vector<coordinate> chosen;
+    coordinates chosen;
     enumerate(matrix, k, 0, 0, 0, chosen, best, haveBest);
     return best;
 }

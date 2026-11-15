@@ -1,19 +1,17 @@
 #ifndef OBJECTIVE_HPP
 #define OBJECTIVE_HPP
 
-#include <vector>
+#include <indexes.hpp>
 
 namespace PhantomX::Objective {
 
-using IntSet = std::vector<int>;                  // sorted ascending, distinct, nonnegative
+using IntSet = indexes;
 using Matrix = std::vector<std::vector<IntSet>>;  // rows x columns of sets
-
-struct coordinate { int row, col; };              // (row, column), zero-indexed
 
 struct Result {
     int intersectionSize = 0;
     std::vector<int> commonElements;
-    std::vector<coordinate> selectedIndices;
+    coordinates selectedIndices;
 };
 
 Result solve(const Matrix& matrix, int k);
