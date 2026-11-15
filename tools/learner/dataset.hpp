@@ -1,37 +1,45 @@
 #ifndef DATASET_HPP
 #define DATASET_HPP
 
-#include <string>
+#include <istream>
 #include <vector>
 #include <cstdint>
 
-#include "indexes.hpp"
+#include <configuration.hpp>
+#include <indexes.hpp>
 
 namespace PhantomX {
 
 struct dataset {
 
-    struct label {
-        uint16_t id_;
-        uint16_t args_[7];
-    };
-
     struct sample {
-        indexes x;
-        label y;
+        indexes x; // attributes
+        uint16_t y[8]={0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff}; // target
     };
 
-    std::vector<sample> samples_;
-
-    groups groups_;
+    // the samples that make-up the dataset.
+    std::vector<sample> samples;
+    // this would be set to true if the dataset
+    // is loaded successfully.
+    bool okay=false;
 
 public:
 
+    // Boolean type-cast operator returns true iff the dataset
+    // was loaded successfully by the constructor.
+    operator bool() const;
+    // Index operator returns a reference to the sample
+    // at the specified index.
+    const sample& operator[](std::size_t _index) const;
+    // Gets the number of samples in 
+    // the dataset.
     size_t size() const;
+    // Constructor loads the dataset from the specified
+    // input-stream object, wrt the specified configuration.
+    dataset(std::istream _is, const config& _config);
+    // Deleted default construction.
+    dataset()=delete;
 
-    bool load(const std::string& _filename);
-
-    void clear();
 };
 
 } // namespace PhantomX
