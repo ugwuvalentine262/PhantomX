@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <iostream>
+#include <functional>
 #include <cstdint>
 #include <iterator>
 #include <string>
@@ -70,104 +71,99 @@ namespace PhantomX {
         const std::string content((std::istreambuf_iterator<char>(_is)),
                                   std::istreambuf_iterator<char>());
 
-        // Parse the whole document; 
-        // trailing content is rejected by the parser.
         json root;
 
-        if (_is.bad()) {
-            std::cerr << "Error: failed while reading file dataset\n";
-            goto END;
-        }
-
         try {
+            if (!_config) {
+                throw ValidationError("Error: specified configuration is not defined.");
+            }
+            if (_is.bad()) {
+                throw std::runtime_error("failed while reading dataset from istream.");
+            }
+
             root = json::parse(content);
+        
+            // Root validation.
+            if (!root.is_array()) {
+                throw ValidationError("Error: root JSON value must be an array.");
+            }
+            if (root.empty()) {
+                throw ValidationError("Error: root array must not be empty.");
+            }
+
+            samples.reserve(root.size());
+
+            for (std::size_t i = 0; i < root.size(); ++i) {
+
+                const json& entry = root[i];
+                const std::string where = "entry " + std::to_string(i);
+
+                if (!entry.is_array()) {
+                    throw ValidationError(where + ": entry must be an array.");
+                }
+                if (entry.size() != 2) {
+                    throw ValidationError(where + ": entry must contain exactly 2 elements, found " 
+                                            + std::to_string(entry.size()) + ".");
+                }
+                if (!entry[0].is_array()) {
+                    throw ValidationError(where + ", element 0: must be an array of strings.");
+                }
+                if (!entry[1].is_array()) {
+                    throw ValidationError(where + ", element 1: must be an array of integers.");
+                }
+
+                const json& y = entry[0];
+                const json& x = entry[1];
+
+                if (y.empty()) {
+                    throw ValidationError(where + ", element 0: string array must not be empty.");
+                }
+                if (y.size() != k) {
+                    throw ValidationError(where + ", element 0: string array must contain exactly " + 
+                                            std::to_string(k) + " strings, found " + 
+                                            std::to_string(y.size()) + ".");
+                }
+
+                sample sample;
+
+                for (std::size_t j =0; j < y.size(); ++j) {
+                    if (!y[j].is_string()) {
+                        throw ValidationError(where + ", string index " + std::to_string(j) + ": element must be a string.");
+                    }
+                    sample.y[j]=_config.id(
+                                    std::hash<std::string>{}(y[j].get<std::string>())
+                                 );
+                }
+
+                sample.x.reserve(x.size());
+
+                for (std::size_t j = 0; j < x.size(); ++j) {
+                    int value = 0;
+                    const std::string problem = read_non_negative_int(x[j], value);
+                    if (!problem.empty()) {
+                        throw ValidationError(where + ", integer index " + std::to_string(j) + ": " + problem + ".");
+                    }
+                    sample.x.push_back(value);
+                }
+                std::sort(sample.x.begin(), sample.x.end());
+
+                for (std::size_t j = 1; j < x.size(); j++) {
+                    if (sample.x[j - 1] == sample.x[j]) {
+                        throw ValidationError(where + ", duplicate values.");
+                    }
+                }
+                samples.push_back(std::move(sample));
+            }
+            okay=true;
         } catch (const json::parse_error& e) {
-            std::cerr << "Error: " << std::string("malformed JSON: ") + e.what() << "\n";
-            goto END;
+            std::cerr << "Error: malformed JSON: " << e.what() << '\n';
+        } catch (const ValidationError& e) {
+            std::cerr << "Error: invalid input: " << e.what() << '\n';
+        } catch (const json::exception& e) {
+            std::cerr << "Error: JSON processing failure: " << e.what() << '\n';
         } catch (const std::exception& e) {
-            std::cerr << "Error: " << std::string("failed to parse JSON: ") + e.what() << "\n";
-            goto END;
+            std::cerr << "Error: " << e.what() << '\n';
         }
-
-        // Root validation.
-        if (!root.is_array()) {
-            std::cerr << "Error: root JSON value must be an array\n";
-            goto END;
-        }
-        if (root.empty()) {
-            std::cerr << "Error: root array must not be empty\n";
-            goto END;
-        }
-
-        samples.reserve(root.size());
-
-        for (std::size_t i = 0; i < root.size(); ++i) {
-
-            const json& entry = root[i];
-            const std::string ERROR = "Error: entry " + std::to_string(i);
-
-            if (!entry.is_array()) {
-                std::cerr << ERROR << ": entry must be an array\n";
-                goto END;
-            }
-            if (entry.size() != 2) {
-                std::cerr << ERROR << ": entry must contain exactly 2 elements, found " << entry.size() << "\n";
-                goto END;
-            }
-            if (!entry[0].is_array()) {
-                std::cerr << ERROR << ", element 0: must be an array of strings\n";
-                goto END;
-            }
-            if (!entry[1].is_array()) {
-                std::cerr << ERROR << ", element 1: must be an array of integers\n";
-                goto END;
-            }
-
-            const json& y = entry[0];
-            const json& x = entry[1];
-
-            if (y.empty()) {
-                std::cerr << ERROR << ", element 0: string array must not be empty\n";
-                goto END;
-            }
-            if (y.size() != k) {
-                std::cerr << ERROR << ", element 0: string array must contain exactly " << k << " strings, found " << y.size() << "\n";
-                goto END;
-            }
-
-            sample sample;
-
-            for (std::size_t j =0; j < y.size(); ++j) {
-                if (!y[j].is_string()) {
-                    std::cerr << ERROR << ", string index " << j << ": element must be a string\n";
-                    goto END;
-                }
-                sample.y[j]=_config.id(y[j].get<std::string>());
-            }
-
-            sample.x.reserve(x.size());
-
-            for (std::size_t j = 0; j < x.size(); ++j) {
-                int value = 0;
-                const std::string problem = read_non_negative_int(x[j], value);
-                if (!problem.empty()) {
-                    std::cerr << ERROR << ", integer index " << j << ": " << problem << "\n";
-                    goto END;
-                }
-                sample.x.push_back(value);
-            }
-            std::sort(sample.x.begin(), sample.x.end());
-
-            for (std::size_t j = 1; j < x.size(); j++) {
-                if (sample.x[j - 1] == sample.x[j]) {
-                    std::cerr << ERROR << ", duplicate values.\n";
-                    goto END;
-                }
-            }
-            samples.push_back(std::move(sample));
-        }
-        okay=true;
-    END:
     }
 
 } // namespace PhantomX
