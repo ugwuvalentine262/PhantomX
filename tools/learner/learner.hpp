@@ -1,7 +1,7 @@
 #include <string>
-#include <span>
 
 #include <dataset.hpp>
+#include <configuration.hpp>
 #include <decision_tree.hpp>
 
 namespace PhantomX {
@@ -11,30 +11,36 @@ class learner {
 public:
 
     struct result {
-        int max_depth_=0;
-        int success_=0;
-        uint64_t elapsed_=0;
-        decision_tree dt_;
+        int success=0;
+        int elapsed=0;
+        int nodes=0;
+        int leafs=0;
     public:
-        void write_json(const std::string& _filename);
-        result(const decision_tree& _dt, int _max_depth, uint64_t _elapsed);
-        result();
-        
+        result(int _max_depth, int _elapsed);
+        result()=default;
     };
 
 private:
 
-    dataset dataset_;
+    // -------- Hyper-parameters ------- //
 
-    int max_features_;
-    int min_samples_leaf_;
-    int min_samples_split_;
+    // The maximum number of features to be considered
+    // while evaluating the quality of splits.
+    int max_features_=-1;
+    // The minimum number of samples required to be
+    // at any leaf node of the decision tree.
+    int min_samples_leaf_=-1;
+    // the minimum number of sample required at a
+    // node before it is considered eligible for 
+    // splitting.
+    int min_samples_split_=-1;
 
 public:
 
-    result train(const std::string& _dataset_file);
-
-    learner(int _max_features=-1, int _min_samples_leaf=-1, int _min_samples_split=-1);
+    // Trains the model with the specified dataset, with respect to the specified
+    // features configuration data. The resulting model would be saved to a binary file of 
+    // the specified name.
+    result learn(const dataset& _dataset, const config& _config, const std::string& _filename);
 };
 
 } // namespace PhantomX
