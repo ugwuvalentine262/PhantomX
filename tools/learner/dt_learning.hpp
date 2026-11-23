@@ -1,9 +1,6 @@
 #ifndef DECISION_TREE_LEARNING
 #define DECISION_TREE_LEARNING
 
-#include <algorithm>
-#include <span>
-
 #include <decision_tree.hpp>
 #include <configuration.hpp>
 #include <dataset.hpp>
@@ -14,9 +11,14 @@ namespace PhantomX {
 // learning algorithm.
 struct dt_learning {
 
-    // A branch resulting from a split during the recursive greedy
-    // splitting routine.
-    struct branch { indexes samples; bool true_branch; };
+    // A branch resulting from a split during the 
+    // recursive greedy splitting routine.
+    struct branch {
+        indexes samples; // the indexes of samples that make up the branch.
+        coordinates args; // a description of how the target is derived.
+        int score=-1; // the score of the branch wrt some objective function.
+        bool true_branch; // true iff this is the left branch.
+    };
 
     // The split structure contains information necessary
     // for splitting samples at a node during the recursive-
@@ -25,20 +27,11 @@ struct dt_learning {
         branch left, right; // the left and right branches of the split.
         int score=-1; // a non-negative score reflecting the quality of the split.
         int index, group;
-        bool negate;
-    public:
-        // Type-cast operator returns true iff the split is valid.
-        // i.e, if the score is non-negative.
-        operator bool() const;
-        // Comparison operator returns true iff the score of the
-        // split is greater than that of the specified one.
-        bool operator>(const split& _split) const;
     };
 
-    // The state structure holds info necessary traversing
+    // The state structure holds info necessary for traversing
     // the tree-structure of the recursive-greedy-splitting algorithm.
     struct state {
-
         struct group {
             // the attributes that make up the group.
             indexes indices;
@@ -88,8 +81,6 @@ struct dt_learning {
 
     // Number of nodes in the tree (including leafs).
     int node_idx_=0;
-    // The number of pure leaf nodes in the tree.
-    int num_of_pure_leafs_=0;
 
     /* ----------- Hyper-parameters --------------- */
 
@@ -105,15 +96,15 @@ struct dt_learning {
 
 private:
     // Splits the samples using the specified feature/group, and returns the resulting split data.
-    split divide(const indexes& _samples, const state& _state, const config::group& _group, int _index, bool _flip) const;
+    split divide(const indexes& _samples, const state& _state, int _group, int _index) const;
     // The recursive greedy splitting algorithm is the core of the decision tree learning algorithm.
     // This is a process used by the decision tree to divide a dataset into smaller subsets based on the 
     // features that best separate them into meaningful clusters.
     int recursive_greedy_splitting(state& _state, const split& _split, const branch& _branch);
     // Adds a node to the decision-tree model.
-    void add_node(int _node_idx, int _right_node_idx, int _left_node_idx, const split& _split);
+    void add_node(int _node_idx, int _left_node, int _right_node, const split& _split);
     // Adds a leaf node to the decision-tree model.
-    void add_leaf(int _node_idx);
+    void add_leaf(int _node_idx, const branch& _branch);
 
 public:
     // Calls the main learning algorithm for the decision-tree model.

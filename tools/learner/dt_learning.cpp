@@ -15,52 +15,56 @@ namespace PhantomX {
         split best_split;
         _state.apply(config_, _split, _branch);
 
-        for (auto& g : config_.x) {
-            for (size_t i=0; i<=_state.paths[0].size(); i++) {
-                for (bool flip : {false, true}) {
-                    split split = divide(_branch.samples, _state, g, i, flip);
-                    if (split) {
-                        if (!best_split || (split > best_split)) {
-                            best_split = std::move(split);
-                        }
-                    }
+        for (std::size_t g=0; j<config_.x.size(); g++) {
+            for (std::size_t i=0; i<=_state.paths[0].size(); i++) {
+                split split = divide(_branch.samples, _state, g, i);
+                if (split.score>best_split.score) {
+                    best_split = std::move(split);
                 }
             }
         }
         // did we find a good split?
-        if (best_split) {
+        if (best_split.score>_branch.score) {
             add_node(   node_idx
                     ,   recursive_greedy_splitting(_state, best_split, best_split.left)
                     ,   recursive_greedy_splitting(_state, best_split, best_split.right)
                     ,   best_split
                 );
         } else { // no good split was found.
-            add_leaf(node_idx);
+            add_leaf(node_idx, _branch);
         }
         _state.undo(_split, _branch);
         return node_idx;
     }
 
     // Adds a node to the decision-tree model.
-    void dt_learning::add_node(int _node_idx, int _right_node_idx, int _left_node_idx, const split& _split) {
+    void dt_learning::add_node(int _node_idx, int _left_node, int _right_node, const split& _split) {
+        if (static_cast<std::size_t>(_node_idx)>=nodes_.size()) {
+            nodes_.resize(_node_idx + 1);
+        }
 
+        auto& node = nodes_[_node_idx];
+
+        node.left=_left_node;
+        node.right=_right_node;
+        node.group=split.group;
+        node.index=split.index;
     }
 
     // Adds a leaf node to the decision-tree model.
-    void dt_learning::add_leaf(int _node_idx) {
+    void dt_learning::add_leaf(int _node_idx, const branch& _branch) {
+        if (static_cast<std::size_t>(_node_idx)>=nodes_.size()) {
+            nodes_.resize(_node_idx + 1);
+        }
 
-    }
+        auto& node = nodes_[_node_idx];
 
-    // Type-cast operator returns true iff the split is valid.
-    // i.e, if the score is non-negative.
-    dt_learning::split::operator bool() const {
-        return score<0?true:false;
-    }
+        node.left=0;
+        node.right=0;
+        node.group=0;
+        node.index=leafs_.size();
 
-    // Comparison operator returns true iff the score of the
-    // split is greater than that of the specified one.
-    bool dt_learning::split::operator>(const split& _split) const {
-        return score > _split.score;
+        leafs_.emplace_back(decision_tree::leaf{.args=_branch.args, .weight=0});
     }
 
     // Updates the current state with respect to the given parameters.
@@ -112,9 +116,16 @@ namespace PhantomX {
     {}
 
     // Splits the samples using the specified feature/group, and returns the resulting split data.
-    dt_learning::split dt_learning::divide(const indexes& _samples, const state& _state, const config::group& _group, int _index, bool _flip) const {
+    dt_learning::split dt_learning::divide(const indexes& _samples, const state& _state, int _group, int _index) const {
         split split;
-        Objective::Matrix left, right;
+
+        // number of samples required for splitting at the node
+        // must meet up to the minimum requirement.
+        if (min_samples_split_>0
+            &&static_cast<std::size_t>(min_samples_split_)>_samples.size()) {
+            return split;
+        }
+
         auto& first = _state.paths.at(_samples.front());
 
         int cnt = std::count_if(first.begin(), first.end(), [](const state::group& g)
@@ -123,17 +134,55 @@ namespace PhantomX {
                         });
 
         int llc=cnt, rlc=cnt;
+        int k=config_.args.size();
 
         first[_index].leaf?rlc:++llc;
 
+        Objective::Matrix left(llc, std::vector<indices>(k));
+        Objective::Matrix right(rlc, std::vector<indices>(k));
+
         for (auto sample : _samples) {
             auto& path = _state.paths[sample];
+            auto intersect = path[_index].indexes & config_.x[_group].indexes;
+            for (std::size_t i=0,j=0; i < path.size(); i++) {
+                if (!path[i].leaf) {
+                    continue;
+                }
 
-            path[_index]
+                if (intersect.empty()) {
+                    for (auto h=0; h < k; h++) {
+                        split.right.samples.push_back(sample);
+                        right[j][h].push_back(sample);
+                    }
+                } else {
+                    for (auto h=0; h < k; h++) {
+                        split.left.samples.push_back(sample);
+                        left[j][h].push_back(sample);
+                    }
+                }
+                ++j;
+            }
         }
 
-        auto right_res = Objective::solve(right, );
-        auto left_res = Objective::solve(left, );
+        // number of samples required at the leaf node
+        // must meet up to the minimum requirement.
+        if (min_samples_leaf_>0) {
+            if (static_cast<std::size_t>(min_samples_leaf_)>split.right.samples.size()
+                ||static_cast<std::size_t>(min_samples_leaf_)>split.left.samples.size()) {
+                return split;
+            }
+        }
+
+        auto r_res = Objective::solve(right, rlc);
+        auto l_res = Objective::solve(left, llc);
+
+        split.right.score=r_res.intersectionSize;
+        split.right.args=r_res.selectedIndices;
+        split.left.score=l_res.intersectionSize;
+        split.left.args=l_res.selectedIndices;
+        split.score=split.left.score+split.right.score;
+        split.index=_index;
+        split.group=_group;
 
         return split;
     }
@@ -158,6 +207,5 @@ namespace PhantomX {
         ,   min_samples_leaf_(_min_samples_leaf)
         ,   min_samples_split_(_min_samples_split)
     {}
-
 
 } // namespace PhantomX
