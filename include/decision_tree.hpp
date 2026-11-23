@@ -20,15 +20,18 @@ struct decision_tree {
     };
 
     // An implementation of the node of the decision-tree model.
-    struct node { int left, right, index, group, negate; };
+    struct node {
+        std::int32_t left;
+        std::int32_t right;
+        std::int32_t index;
+        std::int32_t group;
+    };
 
     // An implementation of the leaf-node of the
     // decision-tree model.
     struct leaf {
-        struct label { std::uint16_t id, args[7]; };
-        coordinates args; // data used for substitution.
-        std::size_t id; // a unique ID number for the leaf.
-        bool pure; // true if this leaf is a pure-leaf
+        coordinates args; // a description of how the target is derived.
+        float weight; // the degree of importance of the leaf.
     public:
         // Writes the leaf data to the specified output-stream. 
         // Returns true iff the operation completed successfully.
@@ -45,19 +48,18 @@ private:
 
     // attributes/features configuration containing
     // the grouping of features or attributes.
-    config config_;
+    const config& config_;
 
-    nodes nodes_; // the nodes of the decision-tree model.
+    nodes nodes_; // the nodes of the decision-tree model (excluding leafs).
     leafs leafs_; // the leaf-nodes of the decision-tree model.
 
 public:
-
     // Writes the nodes and leaf data of the decision-tree
-    // to the specified output-stream. Returns true iff the 
+    // to the specified output-stream. Returns true iff the
     // operation completed successfully.
     bool write(std::ostream& _os) const;
     // Reads the nodes and leaf data of the decision-tree
-    // from the specified input-stream. Returns true iff the 
+    // from the specified input-stream. Returns true iff the
     // operation completed successfully.
     bool read(std::istream& _is);
     // Clears the decision-tree model.
@@ -66,7 +68,7 @@ public:
     decision operator()(const indexes& _attributes) const;
     // Constructor initializes the decision-tree model
     // with the configuration data.
-    decision_tree(config _config);
+    decision_tree(const config& _config);
     // The default constructor.
     decision_tree()=delete;
 
