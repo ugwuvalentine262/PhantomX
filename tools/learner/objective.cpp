@@ -12,7 +12,7 @@ namespace PhantomX::Objective {
 
 // One DP state: the intersection so far plus the cells that produced it.
 struct State {
-    std::vector<int> commonElements;
+    indexes commonElements;
     coordinates selectedIndices;
 };
 

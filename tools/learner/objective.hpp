@@ -10,7 +10,7 @@ using Matrix = std::vector<std::vector<IntSet>>;  // rows x columns of sets
 
 struct Result {
     int intersectionSize = 0;
-    std::vector<int> commonElements;
+    IntSet commonElements;
     coordinates selectedIndices;
 };
 
