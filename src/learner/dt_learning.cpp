@@ -15,7 +15,7 @@ namespace PhantomX {
         split best_split;
         _state.apply(config_, _split, _branch);
 
-        for (std::size_t g=0; j<config_.x.size(); g++) {
+        for (std::size_t g=0; g<config_.x.size(); g++) {
             for (std::size_t i=0; i<=_state.paths[0].size(); i++) {
                 split split = divide(_branch.samples, _state, g, i);
                 if (split.score>best_split.score) {
@@ -47,8 +47,8 @@ namespace PhantomX {
 
         node.left=_left_node;
         node.right=_right_node;
-        node.group=split.group;
-        node.index=split.index;
+        node.group=_split.group;
+        node.index=_split.index;
     }
 
     // Adds a leaf node to the decision-tree model.
@@ -70,7 +70,7 @@ namespace PhantomX {
     // Updates the current state with respect to the given parameters.
     void dt_learning::state::apply(const config& _config, const dt_learning::split& _split, const branch& _branch)
     {
-        if (!_split||!_branch.true_branch) { return; }
+        if (!_branch.true_branch) { return; }
         for (auto& i : _branch.samples) {
             auto& p = paths.at(i);
             auto& a = _config.x.at(_split.group);
@@ -84,7 +84,7 @@ namespace PhantomX {
     // The state returns to the exact state it was before the
     // split was applied.
     void dt_learning::state::undo(const dt_learning::split& _split, const branch& _branch) {
-        if (!_split||!_branch.true_branch) { return; }
+        if (!_branch.true_branch) { return; }
         for (size_t i=0; i < _branch.samples.size(); i++) {
             paths[_branch.samples[i]].pop_back();
         }
@@ -138,12 +138,12 @@ namespace PhantomX {
 
         first[_index].leaf?rlc:++llc;
 
-        Objective::Matrix left(llc, std::vector<indices>(k));
-        Objective::Matrix right(rlc, std::vector<indices>(k));
+        Objective::Matrix left(llc, std::vector<indexes>(k));
+        Objective::Matrix right(rlc, std::vector<indexes>(k));
 
         for (auto sample : _samples) {
             auto& path = _state.paths[sample];
-            auto intersect = path[_index].indexes & config_.x[_group].indexes;
+            auto intersect = path[_index].indices & config_.x[_group].indexes;
             for (std::size_t i=0,j=0; i < path.size(); i++) {
                 if (!path[i].leaf) {
                     continue;
