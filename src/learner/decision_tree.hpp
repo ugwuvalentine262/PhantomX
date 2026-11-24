@@ -1,5 +1,5 @@
-#ifndef DECISION_TREE_LEARNING
-#define DECISION_TREE_LEARNING
+#ifndef DECISION_TREE_LEARNER
+#define DECISION_TREE_LEARNER
 
 #include <decision_tree.hpp>
 #include <configuration.hpp>
@@ -9,7 +9,7 @@ namespace PhantomX {
 
 // This class contains our implementation of a decision-tree 
 // learning algorithm.
-struct dt_learning {
+struct decision_tree::learner {
 
     // A branch resulting from a split during the 
     // recursive greedy splitting routine.
@@ -112,9 +112,9 @@ public:
     // Constructor.
     // The learning algorithm is initialized with a dataset, a configuration/grouping of the
     // attributes and features, then some hyperparameter determining the structure of the decision-tree.
-    dt_learning(const dataset& _dataset, const config& _config, int _max_features, int _min_samples_leaf, int _min_samples_split);
+    learner(const dataset& _dataset, const config& _config, int _max_features, int _min_samples_leaf, int _min_samples_split);
 };
 
 } // namespace PhantomX
 
-#endif // DECISION_TREE_LEARNING
+#endif // DECISION_TREE_LEARNER

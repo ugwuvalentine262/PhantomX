@@ -2,7 +2,7 @@
 #include <random>
 #include <numeric>
 
-#include "dt_learning.hpp"
+#include "decision_tree.hpp"
 #include "objective.hpp"
 
 namespace PhantomX {
@@ -10,7 +10,7 @@ namespace PhantomX {
     // The recursive greedy splitting algorithm is the core of the decision tree learning algorithm.
     // This is a process used by the decision tree to divide a dataset into smaller subsets based on the 
     // features that best separate them into meaningful clusters.
-    int dt_learning::recursive_greedy_splitting(state& _state, const split& _split, const branch& _branch) {
+    int decision_tree::learner::recursive_greedy_splitting(state& _state, const split& _split, const branch& _branch) {
         int node_idx = node_idx_++;
         split best_split;
         _state.apply(config_, _split, _branch);
@@ -38,7 +38,7 @@ namespace PhantomX {
     }
 
     // Adds a node to the decision-tree model.
-    void dt_learning::add_node(int _node_idx, int _left_node, int _right_node, const split& _split) {
+    void decision_tree::learner::add_node(int _node_idx, int _left_node, int _right_node, const split& _split) {
         if (static_cast<std::size_t>(_node_idx)>=nodes_.size()) {
             nodes_.resize(_node_idx + 1);
         }
@@ -52,7 +52,7 @@ namespace PhantomX {
     }
 
     // Adds a leaf node to the decision-tree model.
-    void dt_learning::add_leaf(int _node_idx, const branch& _branch) {
+    void decision_tree::learner::add_leaf(int _node_idx, const branch& _branch) {
         if (static_cast<std::size_t>(_node_idx)>=nodes_.size()) {
             nodes_.resize(_node_idx + 1);
         }
@@ -68,7 +68,7 @@ namespace PhantomX {
     }
 
     // Updates the current state with respect to the given parameters.
-    void dt_learning::state::apply(const config& _config, const dt_learning::split& _split, const branch& _branch)
+    void decision_tree::learner::state::apply(const config& _config, const decision_tree::learner::split& _split, const branch& _branch)
     {
         if (!_branch.true_branch) { return; }
         for (auto& i : _branch.samples) {
@@ -83,7 +83,7 @@ namespace PhantomX {
     // Retracts the split that was applied to the state.
     // The state returns to the exact state it was before the
     // split was applied.
-    void dt_learning::state::undo(const dt_learning::split& _split, const branch& _branch) {
+    void decision_tree::learner::state::undo(const decision_tree::learner::split& _split, const branch& _branch) {
         if (!_branch.true_branch) { return; }
         for (size_t i=0; i < _branch.samples.size(); i++) {
             paths[_branch.samples[i]].pop_back();
@@ -91,7 +91,7 @@ namespace PhantomX {
     }
 
     // Constructor initializes the state with a dataset.
-    dt_learning::state::state(const dataset& _dataset) {
+    decision_tree::learner::state::state(const dataset& _dataset) {
         paths.reserve(_dataset.size());
         for (auto& sample : _dataset.samples) {
             paths.emplace_back(decision_path{group(sample.x)});
@@ -101,7 +101,7 @@ namespace PhantomX {
     // Constructor.
     // The new group is formed from the intersection of the specified
     // groups. The newly created group is initially a leaf.
-    dt_learning::state::group::group(const config::group& _a, dt_learning::state::group& _b)
+    decision_tree::learner::state::group::group(const config::group& _a, decision_tree::learner::state::group& _b)
         :   group(_a.indexes & _b.indices)
     {
         _b.leaf=false;
@@ -110,13 +110,13 @@ namespace PhantomX {
     // Constructor.
     // Initializes the group with indexes.
     // The newly created group is initially a leaf.
-    dt_learning::state::group::group(const indexes& _indexes)
+    decision_tree::learner::state::group::group(const indexes& _indexes)
         :   indices(_indexes)
         ,   leaf(true)
     {}
 
     // Splits the samples using the specified feature/group, and returns the resulting split data.
-    dt_learning::split dt_learning::divide(const indexes& _samples, const state& _state, int _group, int _index) const {
+    decision_tree::learner::split decision_tree::learner::divide(const indexes& _samples, const state& _state, int _group, int _index) const {
         split split;
 
         // number of samples required for splitting at the node
@@ -188,7 +188,7 @@ namespace PhantomX {
     }
 
     // Calls the main learning algorithm for the decision-tree model.
-    void dt_learning::operator()(indexes _samples) {
+    void decision_tree::learner::operator()(indexes _samples) {
         split null_split;
         state state(dataset_);
         branch branch {.samples=std::move(_samples), .true_branch=false};
@@ -198,7 +198,7 @@ namespace PhantomX {
     // Constructor.
     // The learning algorithm is initialized with a dataset, a configuration/grouping of the
     // attributes and features, then some hyperparameter determining the structure of the decision-tree.
-    dt_learning::dt_learning(
+    decision_tree::learner::learner(
         const dataset& _dataset, const config& _config, int _max_features, int _min_samples_leaf, int _min_samples_split
     )
         :   dataset_(_dataset)
