@@ -1,12 +1,17 @@
+#ifndef BOOST_LEANER_HPP
+#define BOOST_LEARNER_HPP
+
 #include <string>
 
+#include <boost.hpp>
 #include <dataset.hpp>
 #include <configuration.hpp>
 #include <decision_tree.hpp>
 
 namespace PhantomX {
 
-class learner {
+// This class contains our implementation of a gradient boosting learning algorithm.
+class boost::learner {
 
 public:
 
@@ -44,3 +49,5 @@ public:
 };
 
 } // namespace PhantomX
+
+#endif // BOOST_LEARNER_HPP
