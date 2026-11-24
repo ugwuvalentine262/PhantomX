@@ -7,10 +7,8 @@ namespace PhantomX {
 
     // The decision-tree thinker is responsible for making predictions using a trained decision-tree model.
     struct decision_tree::thinker {
-        // The implementation of the final prediction
-        // of the decision-tree model.
-        struct decision {
-            coordinates path; // the decision-path
+        struct result {
+            coordinates coordinates; // the predicted coordinates for the given sample.
         };
 
         // Constructor initializes the thinker with a trained decision-tree model
