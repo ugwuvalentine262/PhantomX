@@ -13,18 +13,15 @@ namespace PhantomX {
 // An implementation of a decision-tree model.
 struct decision_tree {
 
-    // The implementation of the final prediction
-    // of the decision-tree model.
-    struct decision {
-        coordinates path; // the decision-path
-    };
+    struct learner; // forward declaration of the decision-tree learning algorithm.
+    struct thinker; // forward declaration of the decision-tree prediction algorithm.
 
     // An implementation of the node of the decision-tree model.
     struct node {
-        std::int32_t left;
-        std::int32_t right;
-        std::int32_t index;
-        std::int32_t group;
+        std::int32_t left; // index of the left child node in the nodes_ vector.
+        std::int32_t right; // index of the right child node in the nodes_ vector.
+        std::int32_t index; // index of the feature/attribute used for splitting at this node.
+        std::int32_t group; // index of the group of features/attributes used for splitting at this node.
     };
 
     // An implementation of the leaf-node of the
@@ -45,11 +42,6 @@ struct decision_tree {
     using leafs = std::vector<leaf>;
 
 private:
-
-    // attributes/features configuration containing
-    // the grouping of features or attributes.
-    const config& config_;
-
     nodes nodes_; // the nodes of the decision-tree model (excluding leafs).
     leafs leafs_; // the leaf-nodes of the decision-tree model.
 
@@ -62,16 +54,6 @@ public:
     // from the specified input-stream. Returns true iff the
     // operation completed successfully.
     bool read(std::istream& _is);
-    // Clears the decision-tree model.
-    void clear();
-    // predicts the output given the input attributes.
-    decision operator()(const indexes& _attributes) const;
-    // Constructor initializes the decision-tree model
-    // with the configuration data.
-    decision_tree(const config& _config);
-    // The default constructor.
-    decision_tree()=delete;
-
 };
 
 } // namespace PhantomX
