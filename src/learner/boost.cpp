@@ -7,7 +7,7 @@
 
 namespace PhantomX {
 
-    boost::learner::result boost::learner::learn(const dataset& _dataset, const config& _config, const std::string& _filename)
+    boost::learner::result boost::learner::learn(const dataset& _dataset, const config& _config)
     {
         /*auto start = std::chrono::steady_clock::now();
 

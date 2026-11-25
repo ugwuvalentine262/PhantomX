@@ -29,7 +29,7 @@ private:
 
     // -------- Hyper-parameters ------- //
 
-    // The maximum number of features to be considered
+    // The number of features to be considered
     // while evaluating the quality of splits.
     int max_features_=-1;
     // The minimum number of samples required to be
@@ -39,12 +39,18 @@ private:
     // node before it is considered eligible for 
     // splitting.
     int min_samples_split_=-1;
+    // exponential growth-rate.
+    float growth=2.5;
 
 public:
 
+    bool set_max_features(int i);
+    bool set_min_samples_leaf(int i);
+    bool set_min_samples_split(int i);
+    bool set_growth_rate(float v);
+
     // Trains the model with the specified dataset, with respect to the specified
-    // features configuration data. The resulting model would be saved to a binary file of 
-    // the specified name.
+    // features configuration data.
     result learn(const dataset& _dataset, const config& _config, const std::string& _filename);
 };
 
