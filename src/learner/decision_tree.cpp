@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <random>
 #include <numeric>
+#include <cmath>
 
 #include "decision_tree.hpp"
 #include "objective.hpp"
@@ -64,7 +65,15 @@ namespace PhantomX {
         node.group=0;
         node.index=leafs_.size();
 
-        leafs_.emplace_back(decision_tree::leaf{.args=_branch.args, .weight=0});
+        // _branch.score must be positive at this point.
+        // number of samples must also be non-zero.
+        float weight = _branch.score 
+                / static_cast<float>(_branch.samples.size());
+
+        leafs_.emplace_back(decision_tree::leaf{
+                .args=_branch.args, 
+                .weight=std::exp(growth_ * weight) - 1.0
+            });
     }
 
     // Updates the current state with respect to the given parameters.
@@ -188,7 +197,7 @@ namespace PhantomX {
     }
 
     // Calls the main learning algorithm for the decision-tree model.
-    void decision_tree::learner::operator()(indexes _samples) {
+    void decision_tree::learner::learn(indexes _samples) {
         split null_split;
         state state(dataset_);
         branch branch {.samples=std::move(_samples), .true_branch=false};
@@ -198,14 +207,9 @@ namespace PhantomX {
     // Constructor.
     // The learning algorithm is initialized with a dataset, a configuration/grouping of the
     // attributes and features, then some hyperparameter determining the structure of the decision-tree.
-    decision_tree::learner::learner(
-        const dataset& _dataset, const config& _config, int _max_features, int _min_samples_leaf, int _min_samples_split
-    )
+    decision_tree::learner::learner(const dataset& _dataset, const config& _config)
         :   dataset_(_dataset)
         ,   config_(_config)
-        ,   max_features_(_max_features)
-        ,   min_samples_leaf_(_min_samples_leaf)
-        ,   min_samples_split_(_min_samples_split)
     {}
 
 } // namespace PhantomX

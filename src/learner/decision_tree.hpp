@@ -86,13 +86,15 @@ struct decision_tree::learner {
 
     // Number of features considered while 
     // looking for a split point.
-    int max_features_;
-    // The minimum number of samples that is expected
+    int max_features_=-1;
+    // The minimum number of samples expected
     // to be at a leaf.
-    int min_samples_leaf_;
+    int min_samples_leaf_=-1;
     // The minimum number of samples required before
     // considering splitting that node.
-    int min_samples_split_;
+    int min_samples_split_=-1;
+    // exponential growth rate.
+    float growth_=2.5;
 
 private:
     // Splits the samples using the specified feature/group, and returns the resulting split data.
@@ -107,12 +109,18 @@ private:
     void add_leaf(int _node_idx, const branch& _branch);
 
 public:
+
+    bool set_max_features(int i);
+    bool set_min_samples_leaf(int i);
+    bool set_min_samples_split(int i);
+    bool set_growth_rate(float v);
+
     // Calls the main learning algorithm for the decision-tree model.
-    void operator()(indexes _samples);
+    void learn(indexes _samples);
     // Constructor.
     // The learning algorithm is initialized with a dataset, a configuration/grouping of the
-    // attributes and features, then some hyperparameter determining the structure of the decision-tree.
-    learner(const dataset& _dataset, const config& _config, int _max_features, int _min_samples_leaf, int _min_samples_split);
+    // attributes and features.
+    learner(const dataset& _dataset, const config& _config);
 };
 
 } // namespace PhantomX
