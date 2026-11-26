@@ -1,3 +1,54 @@
+// ============================================================================
+//  boost.cpp
+// ============================================================================
+//
+//  Implements binary serialization for PhantomX::boost, the top-level model
+//  containing an ordered ensemble of decision trees.
+//
+//  This file does not implement gradient-boosting training or prediction.
+//  Those responsibilities belong to boost::learner and boost::thinker. The
+//  model container implemented here persists and restores only the trained
+//  goal identifier and tree ensemble.
+//
+//  --------------------------------------------------------------------------
+//  Binary format, version 2
+//  --------------------------------------------------------------------------
+//
+//  The complete file is laid out as:
+//
+//      magic bytes              "PHANTOMX-BOOST"
+//      uint32                  format version
+//      uint64                  payload size
+//      byte[payload size]      serialized boost payload
+//      byte[32]                SHA-256 digest of the payload
+//
+//  The payload contains the goal identifier, tree count, and the serialized
+//  trees in ensemble order. Tree order is significant because boosting applies
+//  trees sequentially; swapping two otherwise identical trees changes the
+//  resulting model.
+//
+//  Each embedded decision tree is itself self-delimiting and authenticated:
+//  it has its own magic, version, payload size, and SHA-256 digest. This lets
+//  the outer reader consume exactly one tree at a time while the inner reader
+//  verifies that tree's contents independently.
+//
+//  The outer SHA-256 covers the complete boost payload, including the goal ID,
+//  tree count, and every serialized tree byte. It detects corruption and
+//  unexpected changes, but SHA-256 alone does not authenticate the producer:
+//  someone who can replace a model can also recalculate its public digest. A
+//  MAC or digital signature is required when producer authenticity matters.
+//
+//  Deserialization is transactional. The incoming goal ID and tree vector are
+//  held in temporary values until every tree has been read, the payload has no
+//  trailing bytes, and the complete model has passed verification. A failed
+//  read does not partially replace the existing model.
+//
+//  The format stores raw fixed-width integer and floating-point representations.
+//  It is intended as a compact local model format, not a normalized
+//  cross-platform wire protocol.
+//
+// ============================================================================
+
 #include <boost.hpp>
 
 #include <algorithm>

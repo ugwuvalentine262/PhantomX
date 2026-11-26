@@ -1,3 +1,54 @@
+// ============================================================================
+//  decision_tree.cpp
+// ============================================================================
+//
+//  Implements binary serialization for PhantomX::decision_tree.
+//
+//  This file intentionally does not train or predict. Those responsibilities
+//  belong to decision_tree::learner and decision_tree::thinker. The model
+//  container implemented here only converts its internal node and leaf vectors
+//  to bytes and reconstructs them from bytes later.
+//
+//  --------------------------------------------------------------------------
+//  Binary format, version 2
+//  --------------------------------------------------------------------------
+//
+//  The complete file is laid out as:
+//
+//      magic bytes              "PHANTOMX-DT"
+//      uint32                  format version
+//      uint64                  payload size
+//      byte[payload size]      serialized tree payload
+//      byte[32]                SHA-256 digest of the payload
+//
+//  The payload contains the node count, leaf count, all node records, and all
+//  leaf records. Each node stores left/right child indexes plus its split
+//  index/group. Each leaf stores its coordinate arguments and floating weight.
+//
+//  The leading magic identifies the file type before any model data is parsed.
+//  The version prevents a future layout from being silently interpreted as
+//  this layout. The payload size makes one tree self-delimiting, which is
+//  required when a tree is nested inside a serialized boost ensemble.
+//
+//  SHA-256 is calculated over the exact binary payload. Writing first builds
+//  the payload, calculates its digest, then writes the payload followed by the
+//  digest. Reading verifies the digest before parsing counts or allocating the
+//  node/leaf vectors. This detects corruption and accidental modification, but
+//  SHA-256 alone does not authenticate the producer: someone who can replace a
+//  model can also recalculate its public digest. Authentication would require
+//  a MAC or digital signature.
+//
+//  Deserialization is transactional. Nodes and leaves are loaded into temporary
+//  vectors and committed only after the payload is complete, authenticated,
+//  successfully parsed, and free of trailing bytes. A failed read therefore
+//  leaves the existing tree unchanged.
+//
+//  The format stores raw fixed-width integer and floating-point representations.
+//  It is intended as a compact local model format, not a normalized
+//  cross-platform wire protocol.
+//
+// ============================================================================
+
 #include <decision_tree.hpp>
 
 #include <algorithm>
