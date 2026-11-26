@@ -24,8 +24,8 @@
 //        greater than 0 and at most 1. It is stored in `sample::uncertainty`.
 //
 //      - element 1 ("y") is an array of exactly `k` strings, with `k` being
-//        `config::args.size()`. Each string is a label key. It is hashed and
-//        mapped through `config::id()` to a 16-bit target code that is
+//        `config::args.size()`. Each string is a label key. It is passed
+//        directly to `config::id()` to obtain a 16-bit target code that is
 //        stored in `sample::y`.
 //
 //      - element 2 ("x") is an array of non-negative integers that fit in an
@@ -47,7 +47,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -406,14 +405,9 @@ dataset::dataset(std::istream& _is, const config& _config) {
 
             // --- Labels: strings -> 16-bit target codes --------------------
             //
-            // Each label key is hashed with `std::hash<std::string>` and the
-            // hash is handed to `config::id()`, which returns a
-            // `std::optional<uint16_t>` that is guaranteed to hold a value,
-            // so it is dereferenced unconditionally.
-            //
-            // Note that `std::hash` values are implementation-defined, so
-            // they are only meaningful when `config::id()` hashes keys with
-            // the same function (same standard library and build).
+            // Each label key is passed directly to `config::id()`, which
+            // returns a `std::optional<uint16_t>` that is guaranteed to hold
+            // a value, so it is dereferenced unconditionally.
 
             for (std::size_t j = 0; j < y.size(); ++j) {
                 if (!y[j].is_string()) {
@@ -421,8 +415,7 @@ dataset::dataset(std::istream& _is, const config& _config) {
                         where + ", string index " + std::to_string(j) +
                         ": element must be a string.");
                 }
-                sample.y[j] = *_config.id(
-                    std::hash<std::string>{}(y[j].get<std::string>()));
+                sample.y[j] = *_config.id(y[j].get<std::string>());
             }
 
             // --- Attributes: JSON integers -> sorted `indexes` -------------
