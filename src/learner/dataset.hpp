@@ -2,30 +2,38 @@
 //  dataset.hpp
 // ============================================================================
 //
-//  Declares `dataset`, the in-memory container for training samples and
-//  their targets.
+//  Declares `dataset`, the in-memory container for training samples, their
+//  uncertainties and their targets.
 //
 //  Role of this type:
 //
-//    - `dataset` holds a flat vector of `sample`s, each carrying the
-//      attribute indices that describe the sample ("x") and the packed
-//      target values ("y").
+//    - `dataset` holds a flat vector of `sample`s. Each sample carries an
+//      uncertainty ("u"), the attribute indices that describe the sample
+//      ("x") and the packed target values ("y").
 //
-//    - It is loaded once from a stream against a `configuration`, which
-//      tells it how attribute/label indices are grouped. It then acts as
-//      read-only reference data for learners and thinkers.
+//    - It is loaded once from a stream against a `config`, which tells it how
+//      label keys map to target codes. It then acts as read-only reference
+//      data for learners and thinkers.
 //
 //    - The class stores attribute *indices*, not attribute values: the
 //      actual feature values live elsewhere and are looked up by index.
 //
 //  Sample representation:
 //
-//    Each `sample` has two parallel parts:
+//    Each `sample` has three parts:
 //
+//      - `uncertainty`: how uncertain this sample is, a `double` in the
+//        half-open interval (0, 1]. Zero is excluded; one is allowed.
 //      - `x`: the attribute indices that describe this sample.
 //      - `y`: a fixed-size array of up to eight 16-bit target codes, one
 //        per target goal (see `config::id()`). A slot left at its sentinel
 //        value `0xffff` means "no target for this goal".
+//
+//  Validity:
+//
+//    A dataset is valid iff it is non-empty. The loader rejects an empty
+//    input and empties the dataset whenever loading fails, so "non-empty"
+//    and "loaded successfully" are the same thing.
 //
 // ============================================================================
 
@@ -45,19 +53,26 @@ namespace PhantomX {
 // ----------------------------------------------------------------------------
 // dataset
 //
-// The in-memory collection of training samples plus their targets. Loading
-// is delegated to the constructor; everything afterwards is read-only
-// access.
+// The in-memory collection of training samples plus their uncertainties and
+// targets. Loading is delegated to the constructor; everything afterwards is
+// read-only access.
 // ----------------------------------------------------------------------------
 struct dataset {
 
     // ------------------------------------------------------------------------
     // sample
     //
-    // A single training example: the attribute indices that describe it
-    // plus its (up to eight) packed target codes.
+    // A single training example: its uncertainty, the attribute indices that
+    // describe it, and its (up to eight) packed target codes.
     // ------------------------------------------------------------------------
     struct sample {
+
+        // The uncertainty of this sample, in the half-open interval (0, 1].
+        //
+        // The loader guarantees the range for every sample it produces.
+        // The default of 1.0 (maximum uncertainty) only matters for a
+        // `sample` constructed by hand.
+        double uncertainty = 1.0;
 
         // The attribute indices describing this sample.
         indexes x;
@@ -66,10 +81,12 @@ struct dataset {
         // value `0xffff` means "no target for this goal".
         //
         // The array is fixed at eight slots, so at most eight goals are
-        // supported per sample. Each code is a `config::id()` result (a
-        // 16-bit index into the configuration's sorted "y"), with `0xffff`
-        // reserved as the "absent" sentinel — which is why `id()` itself
-        // returns `0xffff` for a missing key.
+        // supported per sample (the configuration is responsible for
+        // keeping its goal count within that limit). Each code is a
+        // `config::id()` result, a 16-bit index into the configuration's
+        // sorted "y", with `0xffff` reserved as the "absent" sentinel.
+        // Slots beyond the configuration's goal count therefore keep the
+        // sentinel value.
         uint16_t y[8] = {
             0xffff, 0xffff, 0xffff, 0xffff,
             0xffff, 0xffff, 0xffff, 0xffff
@@ -80,12 +97,9 @@ struct dataset {
     // State
     // ------------------------------------------------------------------------
 
-    // The samples that make up the dataset.
+    // The samples that make up the dataset. Empty if (and only if) the
+    // dataset is not valid.
     std::vector<sample> samples;
-
-    // True iff the dataset was loaded successfully by the constructor.
-    // Mirrored by `operator bool()`.
-    bool okay = false;
 
 public:
 
@@ -93,8 +107,9 @@ public:
     // Validity
     // ------------------------------------------------------------------------
 
-    // Boolean type-cast operator. Returns true iff the dataset was loaded
-    // successfully by the constructor. Equivalent to reading `okay`.
+    // Boolean type-cast operator. Returns true iff the dataset is not
+    // empty. Because the constructor empties the dataset whenever loading
+    // fails, this is equivalent to "the dataset was loaded successfully".
     operator bool() const;
 
     // ------------------------------------------------------------------------
@@ -102,8 +117,8 @@ public:
     // ------------------------------------------------------------------------
 
     // Index operator. Returns a reference to the sample at the specified
-    // index. The index is not bounds-checked here; out-of-range access is
-    // undefined behaviour.
+    // index. The index is bounds-checked: an out-of-range index throws
+    // `std::out_of_range`.
     const sample& operator[](std::size_t _index) const;
 
     // Gets the number of samples in the dataset.
@@ -117,23 +132,19 @@ public:
     //
     // Loads the dataset from the specified input-stream object, with
     // respect to the specified configuration. The configuration supplies
-    // the mapping from raw label keys to `sample::y` target codes.
+    // the number of labels every entry must carry and the mapping from raw
+    // label keys to `sample::y` target codes.
     //
-    // If loading fails, `okay` remains false and `operator bool()` returns
-    // false. (As with `configuration`, whether the constructor also throws
-    // is decided by the implementation in dataset.cpp; this header
-    // documents `okay` / `operator bool()` as the primary signal.)
+    // The stream is taken by reference, so the caller's stream position
+    // reflects what was consumed (the whole stream is read).
     //
-    // NOTE: `_is` is taken BY VALUE, not by reference. This is unusual for
-    // stream parameters (they are typically non-copyable in practice and
-    // passed by reference so the caller's stream position is visible).
-    // It compiles only if `std::istream` is copy-constructible on your
-    // standard library, which it generally is NOT. See the note below.
+    // The constructor never throws. If loading fails, whether at the very
+    // start or halfway through, the failure is reported on `std::cerr` and
+    // the dataset is left empty, so `operator bool()` returns false.
     dataset(std::istream& _is, const config& _config);
 
     // Default construction is deleted: a dataset must always come from a
-    // successfully loaded stream, so an "empty" instance is never a legal
-    // state to have.
+    // stream, so an unloaded instance is never a legal state to have.
     dataset() = delete;
 };
 

@@ -8,22 +8,27 @@
 //  Expected input format:
 //
 //    The stream must contain a single, non-empty JSON array. Every element
-//    of that array is itself a two-element array, "an entry":
+//    of that array is itself a three-element array, "an entry":
 //
 //        [
-//          [ ["label_a", "label_b"], [3, 17, 42] ],   // entry 0
-//          [ ["label_a", "label_c"], [0, 5]      ],   // entry 1
+//          [ 0.25, ["label_a", "label_b"], [3, 17, 42] ],   // entry 0
+//          [ 1e-1, ["label_a", "label_c"], [0, 5]      ],   // entry 1
 //          ...
 //        ]
 //
 //    where, for every entry:
 //
-//      - element 0 ("y") is an array of exactly `k` strings, with `k` being
+//      - element 0 ("u") is the uncertainty: a JSON number in the half-open
+//        interval (0, 1]. Any JSON number notation is accepted (`1`, `1.0`,
+//        `0.5`, `0.001`, `1E-2`, `1e-1`, ...), as long as the value is
+//        greater than 0 and at most 1. It is stored in `sample::uncertainty`.
+//
+//      - element 1 ("y") is an array of exactly `k` strings, with `k` being
 //        `config::args.size()`. Each string is a label key. It is hashed and
 //        mapped through `config::id()` to a 16-bit target code that is
 //        stored in `sample::y`.
 //
-//      - element 1 ("x") is an array of non-negative integers that fit in an
+//      - element 2 ("x") is an array of non-negative integers that fit in an
 //        `int`: the attribute indices describing the sample. The values are
 //        sorted after loading, and duplicates are rejected, so every
 //        `sample::x` is sorted, non-negative and non-repeating (the
@@ -33,8 +38,9 @@
 //
 //    The constructor NEVER lets an exception escape. Every failure (bad
 //    JSON, failed validation, I/O trouble, ...) is reported on `std::cerr`
-//    and leaves `dataset::okay` at `false`. Callers must test the dataset
-//    (via `operator bool()`) before using it.
+//    and the dataset is emptied, even when loading fails halfway through.
+//    A dataset is valid iff it is non-empty, so callers must test the
+//    dataset (via `operator bool()`) before using it.
 //
 // ============================================================================
 
@@ -55,6 +61,66 @@
 using json = nlohmann::json;
 
 namespace PhantomX {
+
+// ----------------------------------------------------------------------------
+// read_uncertainty  (file-local helper)
+//
+// Validates that a JSON value is a number in the half-open interval (0, 1]
+// and, if so, stores it in `out`.
+//
+// The checks run from the most specific rejection to the most general one so
+// that the error message is as helpful as possible:
+//
+//   1. Booleans are rejected. (nlohmann::json keeps booleans as their own
+//      type, but being explicit gives a clearer message than the generic
+//      "not a number" one.)
+//   2. Anything else that is not a number is rejected.
+//   3. Numbers outside (0, 1] are rejected.
+//
+// Integer and floating-point JSON numbers are both accepted, so `1` is as
+// valid as `1.0`. `value.get<double>()` converts either representation.
+//
+// Parameters:
+//   value - the JSON value to inspect.
+//   out   - receives the converted number on success. It is left untouched
+//           on failure.
+//
+// Returns:
+//   An empty string on success, otherwise a short human-readable description
+//   of the problem. The caller is responsible for prefixing it with the
+//   location (entry / element) of the offending value.
+//
+// Linkage:
+//   `static`, so the helper is private to this translation unit.
+// ----------------------------------------------------------------------------
+static std::string read_uncertainty(const json& value, double& out) {
+
+    // --- Step 1: reject anything that is not a number ----------------------
+
+    if (value.is_boolean()) {
+        return "boolean is not a number";
+    }
+    if (!value.is_number()) {
+        return "value is not a number";
+    }
+
+    // --- Step 2: check the range (0, 1] ------------------------------------
+    //
+    // The condition is written as the NEGATION of the accepted range on
+    // purpose: every comparison with NaN is false, so a NaN would be
+    // rejected as well. (Plain JSON cannot spell NaN or infinity, but an
+    // out-of-range literal such as 1e999 may still overflow to infinity;
+    // that is rejected here too.)
+
+    const double candidate = value.get<double>();
+
+    if (!(candidate > 0.0 && candidate <= 1.0)) {
+        return "uncertainty must be greater than 0 and at most 1";
+    }
+
+    out = candidate;
+    return std::string();
+}
 
 // ----------------------------------------------------------------------------
 // read_non_negative_int  (file-local helper)
@@ -141,11 +207,14 @@ static std::string read_non_negative_int(const json& value, int& out) {
 // ----------------------------------------------------------------------------
 // dataset::operator bool
 //
-// Boolean type-cast operator. Returns true iff the dataset was loaded
-// successfully by the constructor (that is, iff `okay` is set).
+// Boolean type-cast operator. Returns true iff the dataset is not empty.
+//
+// There is no separate "loaded" flag: the constructor rejects an empty input
+// and empties `samples` whenever loading fails, so a non-empty dataset is
+// exactly a successfully loaded one.
 // ----------------------------------------------------------------------------
 dataset::operator bool() const {
-    return dataset::okay;
+    return !dataset::samples.empty();
 }
 
 // ----------------------------------------------------------------------------
@@ -153,10 +222,8 @@ dataset::operator bool() const {
 //
 // Index operator. Returns a reference to the sample at the specified index.
 //
-// NOTE: this uses `std::vector::at()`, so an out-of-range index throws
-// `std::out_of_range` instead of being undefined behaviour. (dataset.hpp
-// currently documents the access as unchecked; the two should be brought in
-// line.)
+// The access is bounds-checked: this uses `std::vector::at()`, so an
+// out-of-range index throws `std::out_of_range`.
 // ----------------------------------------------------------------------------
 const dataset::sample& dataset::operator[](std::size_t _index) const {
     return dataset::samples.at(_index);
@@ -183,33 +250,39 @@ std::size_t dataset::size() const {
 //   2. Check the configuration, and the stream state.
 //   3. Parse the string as JSON.
 //   4. Validate the document's overall shape (non-empty array).
-//   5. For every entry, validate its shape, convert the labels ("y") into
-//      target codes, convert the attribute indices ("x"), and append the
-//      resulting `sample`.
-//   6. Only when every entry was accepted, set `okay` to true.
+//   5. For every entry, validate its shape, convert the uncertainty ("u"),
+//      convert the labels ("y") into target codes, convert the attribute
+//      indices ("x"), and append the resulting `sample`.
+//   6. Only when every entry was accepted, mark the load as successful.
+//   7. If the load was not successful, for whatever reason and at whatever
+//      point, empty the dataset again.
 //
-// All failures are reported on `std::cerr` and leave `okay == false`; the
-// constructor never throws. Be aware that `samples` may be left partially
-// filled when loading fails midway, so it must not be used unless `okay` is
-// true.
+// All failures are reported on `std::cerr`; the constructor never throws.
+// Because a failure at any point leaves `samples` empty, a dataset that
+// tests false never exposes a partially loaded state.
 //
 // Parameters:
-//   _is     - the stream to read the JSON document from.
+//   _is     - the stream to read the JSON document from. It is taken by
+//             reference, so the caller's stream position reflects what was
+//             consumed.
 //   _config - the configuration that supplies `args` (the number of labels
 //             every entry must carry) and `id()` (the label-to-code map).
-//
-// NOTE: `_is` is taken BY VALUE, exactly as declared in dataset.hpp.
-// `std::istream` is not copyable, so this signature will not compile on a
-// conforming standard library; it should become `std::istream&` in both the
-// header and here.
 // ----------------------------------------------------------------------------
 dataset::dataset(std::istream& _is, const config& _config) {
 
     // The number of labels ("y" strings) every entry must contain.
+    //
+    // The configuration is responsible for keeping this within the capacity
+    // of `sample::y` (eight slots), so the label loop below does not check
+    // it again.
     const std::size_t k = _config.args.size();
 
     // The parsed document. Declared outside the `try` for readability only.
     json root;
+
+    // Set to true only once every entry has been accepted. It decides, after
+    // the `try` / `catch` below, whether the samples are kept or discarded.
+    bool loaded = false;
 
     try {
         // Slurp the entire stream into memory. nlohmann::json parses from a
@@ -268,47 +341,54 @@ dataset::dataset(std::istream& _is, const config& _config) {
             // the user can find the offending spot in the input file.
             const std::string where = "entry " + std::to_string(i);
 
-            // --- Shape of the entry: [ [labels...], [attributes...] ] ------
+            // --- Shape of the entry: [ u, [labels...], [attributes...] ] ----
 
             if (!entry.is_array()) {
                 throw ValidationError(where + ": entry must be an array.");
             }
-            if (entry.size() != 2) {
+            if (entry.size() != 3) {
                 throw ValidationError(
-                    where + ": entry must contain exactly 2 elements, found " +
+                    where + ": entry must contain exactly 3 elements, found " +
                     std::to_string(entry.size()) + ".");
-            }
-            if (!entry[0].is_array()) {
-                throw ValidationError(
-                    where + ", element 0: must be an array of strings.");
             }
             if (!entry[1].is_array()) {
                 throw ValidationError(
-                    where + ", element 1: must be an array of integers.");
+                    where + ", element 1: must be an array of strings.");
+            }
+            if (!entry[2].is_array()) {
+                throw ValidationError(
+                    where + ", element 2: must be an array of integers.");
             }
 
             // Short names matching the notation used by `sample`:
+            //   u - the uncertainty,
             //   y - the label keys (targets),
             //   x - the attribute indices (features).
-            const json& y = entry[0];
-            const json& x = entry[1];
+            const json& u = entry[0];
+            const json& y = entry[1];
+            const json& x = entry[2];
+
+            // --- Uncertainty: a number in (0, 1] ----------------------------
+
+            double uncertainty = 0.0;
+
+            // Strict range validation; see read_uncertainty().
+            const std::string u_problem = read_uncertainty(u, uncertainty);
+            if (!u_problem.empty()) {
+                throw ValidationError(
+                    where + ", element 0: " + u_problem + ".");
+            }
 
             // --- Shape of the label array ----------------------------------
 
             if (y.empty()) {
                 throw ValidationError(
-                    where + ", element 0: string array must not be empty.");
+                    where + ", element 1: string array must not be empty.");
             }
             // Every entry must carry exactly one label per configured goal.
-            //
-            // CAUTION: `sample::y` is a fixed array of eight slots and the
-            // loop below indexes it with `j < k`. Nothing here (or in this
-            // function) guarantees `k <= 8`, so a configuration with more
-            // than eight goals would write out of bounds. A check on `k`
-            // before the loop would make this safe.
             if (y.size() != k) {
                 throw ValidationError(
-                    where + ", element 0: string array must contain exactly " +
+                    where + ", element 1: string array must contain exactly " +
                     std::to_string(k) + " strings, found " +
                     std::to_string(y.size()) + ".");
             }
@@ -322,17 +402,18 @@ dataset::dataset(std::istream& _is, const config& _config) {
             // keeps that meaning.
             sample sample;
 
+            sample.uncertainty = uncertainty;
+
             // --- Labels: strings -> 16-bit target codes --------------------
             //
             // Each label key is hashed with `std::hash<std::string>` and the
-            // hash is handed to `config::id()`, which returns the code for
-            // that key (or 0xffff when the key is unknown to the
-            // configuration). An unknown label is therefore stored as the
-            // "no target" sentinel rather than being reported as an error.
+            // hash is handed to `config::id()`, which returns a
+            // `std::optional<uint16_t>` that is guaranteed to hold a value,
+            // so it is dereferenced unconditionally.
             //
-            // Also note that `std::hash` values are implementation-defined,
-            // so they are only meaningful when `config::id()` hashes keys
-            // with the same function (same standard library and build).
+            // Note that `std::hash` values are implementation-defined, so
+            // they are only meaningful when `config::id()` hashes keys with
+            // the same function (same standard library and build).
 
             for (std::size_t j = 0; j < y.size(); ++j) {
                 if (!y[j].is_string()) {
@@ -380,8 +461,8 @@ dataset::dataset(std::istream& _is, const config& _config) {
         }
 
         // Reached only if every entry was accepted. This is the single place
-        // where the dataset is declared valid.
-        okay = true;
+        // where the load is declared successful.
+        loaded = true;
 
     // ------------------------------------------------------------------------
     // Error reporting
@@ -394,7 +475,8 @@ dataset::dataset(std::istream& _is, const config& _config) {
     //   json::exception    -> any other nlohmann::json failure
     //   std::exception     -> anything else (e.g. the I/O error above)
     //
-    // In all cases `okay` stays false.
+    // The handlers only report; discarding the partially loaded samples is
+    // done once, below, for every failure alike.
     // ------------------------------------------------------------------------
     } catch (const json::parse_error& e) {
         std::cerr << "Error: malformed JSON: " << e.what() << '\n';
@@ -404,6 +486,20 @@ dataset::dataset(std::istream& _is, const config& _config) {
         std::cerr << "Error: JSON processing failure: " << e.what() << '\n';
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
+    }
+
+    // --------------------------------------------------------------------
+    // Cleanup after a failed load
+    //
+    // A failure may have happened halfway through the entries, leaving some
+    // samples already appended. Empty the dataset so that a failed load
+    // never exposes a partial result: `operator bool()` reports "empty" as
+    // "not valid". `shrink_to_fit()` also releases the storage reserved up
+    // front.
+    // --------------------------------------------------------------------
+    if (!loaded) {
+        samples.clear();
+        samples.shrink_to_fit();
     }
 }
 
