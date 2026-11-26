@@ -332,7 +332,7 @@ config::args_space validate_args(
 // (inserting a key can renumber existing keys).
 //
 // Returns std::nullopt if the hash is not present.
-std::optional<std::uint16_t> id(std::size_t _y_key) const {
+std::optional<std::uint16_t> configuration::id(std::size_t _y_key) const {
     std::size_t lo = 0;
     std::size_t hi = y.size();
 
