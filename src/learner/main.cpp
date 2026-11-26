@@ -1,14 +1,8 @@
-#include "learner.hpp"
+#include "boost.hpp"
 
-void offline_mode()
-{
+namespace PhantomX {
 
-}
-
-void online_mode()
-{
-
-}
+} // namespace PhantomX
 
 int main(int argc, char *argv[])
 {
