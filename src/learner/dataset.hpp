@@ -129,7 +129,7 @@ public:
     // passed by reference so the caller's stream position is visible).
     // It compiles only if `std::istream` is copy-constructible on your
     // standard library, which it generally is NOT. See the note below.
-    dataset(std::istream _is, const config& _config);
+    dataset(std::istream& _is, const config& _config);
 
     // Default construction is deleted: a dataset must always come from a
     // successfully loaded stream, so an "empty" instance is never a legal

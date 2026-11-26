@@ -203,7 +203,7 @@ std::size_t dataset::size() const {
 // conforming standard library; it should become `std::istream&` in both the
 // header and here.
 // ----------------------------------------------------------------------------
-dataset::dataset(std::istream _is, const config& _config) {
+dataset::dataset(std::istream& _is, const config& _config) {
 
     // The number of labels ("y" strings) every entry must contain.
     const std::size_t k = _config.args.size();
