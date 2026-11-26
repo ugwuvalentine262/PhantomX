@@ -60,7 +60,7 @@ inline bool insertWithDominance(std::vector<State>& bucket, State&& candidate) {
 // Optimized bitmask DP solver
 // ===================================================================
 
-inline Result solve(const Matrix& matrix, int k) {
+Result solve(const Matrix& matrix, int k) {
     const std::size_t columns = matrix[0].size();
     const std::size_t rows = matrix.size();
     const std::uint32_t maskCount = std::uint32_t{1} << columns;  // columns <= 20: no overflow
@@ -136,54 +136,5 @@ inline Result solve(const Matrix& matrix, int k) {
     }
     return result;
 }
-
-// ===================================================================
-// Brute-force reference solver (independent oracle; small inputs only)
-// ===================================================================
-
-namespace brute {
-
-inline void enumerate(const Matrix& matrix, int k, std::size_t row, std::uint32_t usedColumns,
-                      int picked, coordinates& chosen, Result& best, bool& haveBest) {
-    const int rowsLeft = static_cast<int>(matrix.size() - row);
-    if (picked + rowsLeft < k) return;
-    if (picked == k) {
-        // Recompute the intersection from scratch with a naive membership test.
-        IntSet common = matrix[chosen[0].x][chosen[0].y];
-        for (std::size_t i = 1; i < chosen.size(); ++i) {
-            const IntSet& other = matrix[chosen[i].x][chosen[i].y];
-            IntSet kept;
-            for (int v : common)
-                if (std::find(other.begin(), other.end(), v) != other.end()) kept.push_back(v);
-            common = std::move(kept);
-        }
-        if (!haveBest || static_cast<int>(common.size()) > best.intersectionSize) {
-            haveBest = true;
-            best.intersectionSize = static_cast<int>(common.size());
-            best.commonElements = common;
-            best.selectedIndices = chosen;
-        }
-        return;
-    }
-    if (row == matrix.size()) return;
-    enumerate(matrix, k, row + 1, usedColumns, picked, chosen, best, haveBest);  // skip row
-    for (std::size_t col = 0; col < matrix[row].size(); ++col) {
-        if (usedColumns & (std::uint32_t{1} << col)) continue;
-        chosen.emplace_back(static_cast<int>(row), static_cast<int>(col));
-        enumerate(matrix, k, row + 1, usedColumns | (std::uint32_t{1} << col), picked + 1, chosen,
-                  best, haveBest);
-        chosen.pop_back();
-    }
-}
-
-Result solve(const Matrix& matrix, int k) {
-    Result best;
-    bool haveBest = false;
-    coordinates chosen;
-    enumerate(matrix, k, 0, 0, 0, chosen, best, haveBest);
-    return best;
-}
-
-}  // namespace brute
 
 }  // namespace PhantomX
