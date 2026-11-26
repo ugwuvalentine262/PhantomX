@@ -18,8 +18,9 @@
 //
 //  At each node, recursive_greedy_splitting():
 //    1. applies the split that led to this node to the state (apply()),
-//    2. tries every (feature group, path position) pair with divide() and
-//       keeps the best split found,
+//    2. randomly selects up to max_features_ feature groups when that limit is
+//       enabled, tries each selected group against every path position with
+//       divide(), and keeps the best split found,
 //    3. if the best split improves on the score of the current branch, it
 //       recurses into the left and right branches; otherwise this node
 //       becomes a leaf,
@@ -40,12 +41,16 @@
 //    * "true branch" == left branch == samples that share at least one
 //      attribute with the chosen feature group. "false branch" == right
 //      branch == samples that share none.
+//    * If max_features_ is positive, a random subset of at most
+//      max_features_ feature groups is considered at each node. If it is
+//      non-positive, every configured feature group is considered.
 //
 // ============================================================================
 
-#include <algorithm>  // (currently unused in this file)
+#include <algorithm>  // std::shuffle
 #include <cmath>      // std::exp
-#include <random>     // (currently unused in this file)
+#include <numeric>    // std::iota
+#include <random>     // random feature selection
 
 #include "decision_tree.hpp"  // the learner declaration (and decision_tree)
 #include "objective.hpp"      // Objective::solve, Objective::Matrix
@@ -87,15 +92,31 @@ int decision_tree::learner::recursive_greedy_splitting(state& _state,
     // Narrow the state down to the branch we are currently working on.
     _state.apply(config_, _split, _branch);
 
-    // Try every feature group (g) against every position (i) in the decision
-    // path, and remember the split with the highest score.
+    // Build the feature-group candidates for this node. Feature groups are
+    // sampled without replacement when max_features_ is enabled, so one group
+    // cannot be evaluated twice at the same node.
     //
     // The path length is read from the first sample of the branch. Paths of
     // samples in different branches can have different lengths (apply() only
     // extends the paths of the left branch), but all samples inside one
     // branch share the same path structure, so any of them can serve as the
     // reference. Requires `_branch.samples` to be non-empty.
-    for (std::size_t g = 0; g < config_.x.size(); g++) {
+    std::vector<std::size_t> feature_groups(config_.x.size());
+    std::iota(feature_groups.begin(), feature_groups.end(), 0);
+
+    if (max_features_ > 0 &&
+        static_cast<std::size_t>(max_features_) < feature_groups.size()) {
+        // A thread-local engine is seeded once per thread. This keeps the
+        // selection random across nodes without reconstructing an engine for
+        // every recursive call.
+        static thread_local std::mt19937 random_engine(std::random_device{}());
+        std::shuffle(feature_groups.begin(), feature_groups.end(), random_engine);
+        feature_groups.resize(static_cast<std::size_t>(max_features_));
+    }
+
+    // Evaluate every selected feature group against every position in the
+    // decision path, and retain the highest-scoring split.
+    for (std::size_t g : feature_groups) {
         for (std::size_t i = 0; i < _state.paths[_branch.samples.front()].size(); i++) {
             // (The local variable intentionally shadows the type name `split`.)
             split split = divide(_branch.samples, _state, g, i);
@@ -344,11 +365,15 @@ decision_tree::learner::state::group::group(const indexes& _indexes)
 //   The new left group is not in the path yet, so it is given the position it
 //   will have once apply() appends it: the current length of the path.
 //
-//   Objective::solve() selects one cell per row (no two in the same column)
-//   so that the intersection of the selected cells is as large as possible.
-//   The size of that intersection is the branch score, and the selected
-//   cells become the branch's `args`. The score of the split is the sum of
-//   the scores of its two branches.
+//   Objective::solve() selects one cell per requested row (no two in the same
+//   column) so that the intersection of the selected cells is as large as
+//   possible. The learner requests min(k, number of rows) cells, where k is
+//   the number of target columns. Therefore every row is represented when
+//   there are enough target columns; when there are more rows than columns,
+//   the objective performs a partial matching and some rows are intentionally
+//   left unassigned. The size of the common intersection is the branch score,
+//   and the selected cells become the branch's `args`. The score of the split
+//   is the sum of the scores of its two branches.
 //
 // A rejected split (too few samples, an empty branch, a branch below the
 // minimum leaf size) is returned with the default score of -1, which can
@@ -462,12 +487,13 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
         }
     }
 
-    // Score both branches. solve() picks exactly `rows` cells with distinct
-    // rows and columns, so it needs at least as many columns (targets) as rows
-    // (leaf groups) and supports at most 20 columns. If no valid selection
-    // exists it returns an empty result (score 0, nothing selected).
-    auto r_res = Objective::solve(right, static_cast<int>(right_leafs.size()));
-    auto l_res = Objective::solve(left, static_cast<int>(left_leafs.size()));
+    // Score both branches. solve() picks exactly min(rows, k) cells with
+    // distinct rows and columns. This intentionally permits a partial
+    // matching when the path has more leaf groups than configured target
+    // columns. If no valid selection exists it returns an empty result (score
+    // 0, nothing selected).
+    auto r_res = Objective::solve(right, std::min(k, static_cast<int>(right_leafs.size())));
+    auto l_res = Objective::solve(left, std::min(k, static_cast<int>(left_leafs.size())));
 
     // Replaces the row (`.x`) of every selected cell by the position, in the
     // decision path, of the group that row stood for. The column (`.y`) is
@@ -510,9 +536,10 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
 // node 0).
 //
 // The tree is built in the learner's own nodes_ and leafs_, which are then
-// moved into the returned object. Any data from a previous call is discarded
-// first (nodes_, leafs_ and node_idx_ are reset), so the same learner can be
-// trained more than once. The hyper-parameters are kept.
+// moved into the returned object. This is intentional: moving transfers
+// ownership without copying the model data. The learner may be reused after
+// the move; its working vectors are valid moved-from containers and are
+// populated by the next training call. The hyper-parameters are kept.
 decision_tree decision_tree::learner::learn(indexes _samples) {
     // The root has no parent split, so a default (empty) split is used.
     split null_split;
@@ -520,7 +547,8 @@ decision_tree decision_tree::learner::learn(indexes _samples) {
     // Every sample starts with a path made only of its own attributes.
     state state(dataset_);
 
-    // Reset.
+    // Reset the node numbering. The working vectors were transferred to the
+    // previous returned tree by std::move, so no explicit clear() is needed.
     node_idx_ = 0;
 
     // The root branch holds all the training samples. true_branch is false so
@@ -534,8 +562,8 @@ decision_tree decision_tree::learner::learn(indexes _samples) {
     // Hand the finished nodes and leaves over to the tree to return. The
     // learner is a nested class of decision_tree, so it may access the tree's
     // private members. Moving avoids copying; the learner's nodes_ and leafs_
-    // are left in a valid but unspecified (in practice empty) state, and are
-    // reset at the start of the next call.
+    // are left in valid moved-from states and are reused by the next call
+    // without copying the completed model.
     decision_tree tree;
     tree.nodes_ = std::move(nodes_);
     tree.leafs_ = std::move(leafs_);
@@ -561,9 +589,10 @@ decision_tree::learner::learner(const dataset& _dataset, const config& _config)
 // Each setter returns true if the value was accepted (and stored) and false if
 // it was rejected. On rejection the member keeps its previous value.
 
-// Sets the number of features considered while looking for a split point.
-// Rejected only when `i` is 0. A negative value is accepted and means "no
-// limit". (max_features_ is not used by the algorithm yet.)
+// Sets the number of feature groups considered while looking for a split
+// point. Rejected only when `i` is 0. A negative value is accepted and means
+// "no limit". When positive, a random subset of at most this many feature
+// groups is sampled independently at each tree node.
 bool decision_tree::learner::set_max_features(int i) {
     if (i == 0) {
         return false;

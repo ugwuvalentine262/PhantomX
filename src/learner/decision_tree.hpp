@@ -12,8 +12,9 @@
 //       the set_* functions, and then calls learn() with the indexes of the
 //       training samples.
 //
-//    2. learn() runs recursive_greedy_splitting(). At each node, divide() is
-//       tried on candidate features/groups, and the best resulting `split`
+//    2. learn() runs recursive_greedy_splitting(). At each node, a random
+//       subset of feature groups may be selected according to max_features_,
+//       divide() is tried on those candidates, and the best resulting `split`
 //       (a left `branch` and a right `branch`) is chosen.
 //
 //    3. A `state` object tracks which groups every sample has passed through.
@@ -204,8 +205,9 @@ struct decision_tree::learner {
     // strictly positive (see below).
     // ------------------------------------------------------------------------
 
-    // Number of features considered while looking for a split point.
-    // Negative (default -1) = no limit; all features are considered.
+    // Number of feature groups considered while looking for a split point.
+    // Negative (default -1) = no limit; all groups are considered. A positive
+    // value randomly selects at most that many distinct groups at each node.
     int max_features_ = -1;
 
     // The minimum number of samples expected to be at a leaf.
