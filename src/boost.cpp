@@ -87,14 +87,14 @@ namespace {
         // The count allows read() to know exactly how many decision_tree
         // records must follow. uint64_t avoids making the file layout depend
         // on the platform-specific width of size_t.
-        const auto tree_count = static_cast<std::uint64_t>(trees_.size());
+        const auto tree_count = static_cast<std::uint64_t>(ensemble_.size());
         if (!write_value(_os, tree_count)) return false;
 
         // Each decision tree owns its own serialization format. Calling
         // decision_tree::write() here keeps the two model layers independent:
         // boost describes the ensemble, while decision_tree describes one
         // member of that ensemble.
-        for (const decision_tree& tree : trees_) {
+        for (const decision_tree& tree : ensemble_) {
             if (!tree.write(_os)) return false;
         }
 
@@ -131,7 +131,7 @@ namespace {
         // The count comes from the input stream and must be checked before
         // reserve() is called. This prevents a malformed file from requesting
         // more vector capacity than the implementation can represent.
-        if (tree_count > trees_.max_size()) return false;
+        if (tree_count > ensemble_.max_size()) return false;
 
         // Keep the incoming ensemble separate from the current one until the
         // entire stream has been validated and decoded.
@@ -151,7 +151,7 @@ namespace {
         // any earlier operation returned false, the old goal ID and tree vector
         // remain untouched.
         goal_id_ = loaded_goal_id;
-        trees_ = std::move(loaded_trees);
+        ensemble_ = std::move(loaded_trees);
         return true;
     }
 
