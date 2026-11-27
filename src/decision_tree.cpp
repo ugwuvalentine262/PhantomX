@@ -10,7 +10,7 @@
 //  to bytes and reconstructs them from bytes later.
 //
 //  --------------------------------------------------------------------------
-//  Binary format, version 2
+//  Binary format, version 3
 //  --------------------------------------------------------------------------
 //
 //  The complete file is laid out as:
@@ -126,6 +126,72 @@ std::vector<unsigned char> digest(const std::string& payload)
     return result;
 }
 
+// Validates the structural invariants of a decoded tree before it is exposed
+// through the public model object.
+//
+// Node zero is the root. Internal nodes must point to two different, positive
+// node indexes, and every non-root node must be referenced exactly once. A leaf
+// node is identified by both child links being zero and must point to a unique,
+// in-range entry in the separate leaf-record vector. Requiring every node and
+// leaf record to be referenced prevents disconnected nodes, duplicate child
+// references, dangling leaf indexes, and incomplete leaf tables.
+bool is_valid_tree(const decision_tree::nodes& nodes,
+                   const decision_tree::leafs& leafs)
+{
+    if (nodes.empty() || leafs.empty()) return false;
+
+    std::vector<bool> child_seen(nodes.size(), false);
+    std::vector<bool> leaf_seen(leafs.size(), false);
+
+    for (std::size_t node_index = 0; node_index < nodes.size(); ++node_index) {
+        const auto& node = nodes[node_index];
+
+        const bool left_is_zero = node.left == 0;
+        const bool right_is_zero = node.right == 0;
+
+        if (left_is_zero && right_is_zero) {
+            // Terminal nodes do not have child references. Their index points
+            // into the separately serialized leaf-record vector.
+            if (node.index < 0 ||
+                static_cast<std::size_t>(node.index) >= leafs.size() ||
+                leaf_seen[static_cast<std::size_t>(node.index)]) {
+                return false;
+            }
+            leaf_seen[static_cast<std::size_t>(node.index)] = true;
+            continue;
+        }
+
+        // Internal nodes must have two non-zero child references. A zero on
+        // only one side, equal child references, negative indexes, and indexes
+        // beyond the node vector are all malformed.
+        if (left_is_zero || right_is_zero || node.left == node.right ||
+            node.left < 0 || node.right < 0 ||
+            static_cast<std::size_t>(node.left) >= nodes.size() ||
+            static_cast<std::size_t>(node.right) >= nodes.size()) {
+            return false;
+        }
+
+        const auto left = static_cast<std::size_t>(node.left);
+        const auto right = static_cast<std::size_t>(node.right);
+        if (child_seen[left] || child_seen[right]) return false;
+        child_seen[left] = true;
+        child_seen[right] = true;
+    }
+
+    // The root has no parent, while every other node must be referenced once.
+    if (child_seen[0]) return false;
+    for (std::size_t node_index = 1; node_index < child_seen.size(); ++node_index) {
+        if (!child_seen[node_index]) return false;
+    }
+
+    // Every serialized leaf record must correspond to exactly one leaf node.
+    for (bool seen : leaf_seen) {
+        if (!seen) return false;
+    }
+
+    return true;
+}
+
 // Writes a raw SHA-256 digest and verifies the stream state.
 bool write_digest(std::ostream& os, const std::string& payload)
 {
@@ -227,7 +293,7 @@ bool decision_tree::leaf::read(std::istream& _is)
 // to the specified output-stream. Returns true iff the
 // operation completed successfully.
 //
-// File layout, version 2:
+// File layout, version 3:
 //
 //   magic bytes
 //   uint32 version
@@ -237,7 +303,8 @@ bool decision_tree::leaf::read(std::istream& _is)
 //
 // Nodes are written before leaves because nodes contain references to child
 // nodes and leaf indexes. The vectors are serialized in their existing order,
-// so all indexes remain meaningful after a round trip.
+// so all indexes remain meaningful after a round trip. A decoded tree is
+// structurally validated before it replaces the current model.
 bool decision_tree::write(std::ostream& _os) const
 {
 	// Write the signature without its terminating '\0'. The signature is a
@@ -359,7 +426,13 @@ bool decision_tree::read(std::istream& _is)
     // trailing bytes indicate a malformed or incompatible serialization.
     if (payload_stream.peek() != std::char_traits<char>::eof()) return false;
 
-    // Commit only after the complete stream has been decoded successfully.
+    // Validate all node/leaf references before committing the decoded model.
+    // This keeps malformed structures out of the public object and preserves
+    // the transactional behavior of read().
+    if (!is_valid_tree(loaded_nodes, loaded_leafs)) return false;
+
+    // Commit only after the complete stream has been decoded successfully and
+    // the tree structure has passed validation.
     nodes_ = std::move(loaded_nodes);
     leafs_ = std::move(loaded_leafs);
     return true;

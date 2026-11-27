@@ -24,17 +24,18 @@
 //
 //    The tree is stored as two parallel flat vectors:
 //
-//      - `nodes_` holds the internal (splitting) nodes. Each node names its
-//        left and right children by index and describes the split
+//      - `nodes_` holds both internal splitting nodes and terminal node slots.
+//        Internal nodes name their left and right children by index; terminal
+//        slots have both child indexes set to zero and refer to `leafs_`.
 //        (feature index + feature group index).
 //
 //      - `leafs_` holds the terminal (leaf) nodes. Each leaf carries a
 //        `coordinates` descriptor (how the target value is derived there)
 //        and a `weight` (the leaf's importance, e.g. purity-based).
 //
-//    Child references in `node` are signed so that a negative value can be
-//    used to mean "this child is a leaf" if the convention is adopted; the
-//    exact child-encoding convention is decided by `learner` / `thinker`.
+//    Child references in `node` use zero as the terminal-node marker. Internal
+//    child references are positive indexes into `nodes_`; each non-root node is
+//    referenced exactly once.
 //
 // ============================================================================
 
@@ -136,7 +137,7 @@ private:
     // State
     // ------------------------------------------------------------------------
 
-    // The internal nodes of the decision-tree model (excluding leaves).
+    // The node slots of the decision-tree model, including terminal slots.
     nodes nodes_;
 
     // The leaf nodes of the decision-tree model.
