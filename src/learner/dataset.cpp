@@ -24,9 +24,9 @@
 //        greater than 0 and at most 1. It is stored in `sample::certainty`.
 //
 //      - element 1 ("y") is an array of exactly `k` strings, with `k` being
-//        `config::args.size()`. Each string is a label key. It is passed
-//        directly to `config::id()` to obtain a 16-bit target code that is
-//        stored in `sample::y`.
+//        `config::args.size()`. Each string is a label key. It is resolved
+//        through `config::id()` to obtain a 16-bit target code that is stored
+//        in `sample::y`; an unknown key is a validation error.
 //
 //      - element 2 ("x") is an array of non-negative integers that fit in an
 //        `int`: the attribute indices describing the sample. The values are
@@ -405,9 +405,10 @@ dataset::dataset(std::istream& _is, const config& _config) {
 
             // --- Labels: strings -> 16-bit target codes --------------------
             //
-            // Each label key is passed directly to `config::id()`, which
-            // returns a `std::optional<uint16_t>` that is guaranteed to hold
-            // a value, so it is dereferenced unconditionally.
+            // Each label key must exist in the configuration's `y` map. The
+            // optional returned by `config::id()` is checked explicitly so an
+            // unknown key produces a useful validation message instead of a
+            // generic `bad_optional_access` error.
 
             for (std::size_t j = 0; j < y.size(); ++j) {
                 if (!y[j].is_string()) {
@@ -415,7 +416,15 @@ dataset::dataset(std::istream& _is, const config& _config) {
                         where + ", string index " + std::to_string(j) +
                         ": element must be a string.");
                 }
-                sample.y[j] = *_config.id(y[j].get<std::string>());
+                const std::string key = y[j].get<std::string>();
+                const auto id = _config.id(key);
+                if (!id) {
+                    throw ValidationError(
+                        where + ", element 1, string index " +
+                        std::to_string(j) + ": label key '" + key +
+                        "' is not defined in configuration.y.");
+                }
+                sample.y[j] = *id;
             }
 
             // --- Attributes: JSON integers -> sorted `indexes` -------------

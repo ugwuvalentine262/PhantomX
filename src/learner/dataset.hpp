@@ -3,7 +3,7 @@
 // ============================================================================
 //
 //  Declares `dataset`, the in-memory container for training samples, their
-//  uncertainties and their targets.
+//  certainty values and their targets.
 //
 //  Role of this type:
 //
@@ -12,8 +12,8 @@
 //      ("x") and the packed target values ("y").
 //
 //    - It is loaded once from a stream against a `config`, which tells it how
-//      label keys map to target codes. It then acts as read-only reference
-//      data for learners and thinkers.
+//      label keys map to target codes. Unknown label keys are rejected during
+//      validation. The loaded data is used as read-only input for learners.
 //
 //    - The class stores attribute *indices*, not attribute values: the
 //      actual feature values live elsewhere and are looked up by index.
@@ -138,9 +138,10 @@ public:
     // The stream is taken by reference, so the caller's stream position
     // reflects what was consumed (the whole stream is read).
     //
-    // The constructor never throws. If loading fails, whether at the very
-    // start or halfway through, the failure is reported on `std::cerr` and
-    // the dataset is left empty, so `operator bool()` returns false.
+    // ValidationError is thrown internally for invalid input, caught by the
+    // constructor, and reported on `std::cerr`. If loading fails, whether at
+    // the very start or halfway through, the dataset is left empty, so
+    // `operator bool()` returns false. No exception escapes the constructor.
     dataset(std::istream& _is, const config& _config);
 
     // Default construction is deleted: a dataset must always come from a
