@@ -34,6 +34,8 @@
 #include <configuration.hpp>  // declares `config` (feature grouping data)
 #include <dataset.hpp>        // declares `dataset`, `indexes`, `coordinates`
 
+#include "objective.hpp"
+
 namespace PhantomX {
 
 // ----------------------------------------------------------------------------
@@ -67,13 +69,17 @@ struct decision_tree::learner {
         coordinates args;
 
         // The score of this branch with respect to some objective function.
-        // -1 means "not yet scored".
-        int score = -1;
+        double score = 0.0;
+
+        // parameter k used by the objective function.
+        std::size_t k=0;
 
         // True iff this is the "true" branch of the split, which corresponds
         // to the left branch. (Left uninitialized: set it before reading.)
         bool true_branch;
     };
+
+    using weights = std::vector<double>;
 
     // ------------------------------------------------------------------------
     // split
@@ -86,8 +92,7 @@ struct decision_tree::learner {
         branch left, right;
 
         // A non-negative score reflecting the quality of the split.
-        // -1 means "not yet scored".
-        int score = -1;
+        double score = 0.0;
 
         // What the split was made on: `group` is the feature group
         // (config_.x[group]) and `index` is the position, in the decision
@@ -177,6 +182,11 @@ struct decision_tree::learner {
     // The config must outlive the learner.
     const config& config_;
 
+    // The weights of all samples in the dataset.
+    // The caller of the constructor already ensures all samples
+    // have a weight, and they all sum to 1.0.
+    const weights& weights_;
+
     // ------------------------------------------------------------------------
     // Working storage for the tree being built by the learning algorithm.
     // learn() moves these into the decision_tree it returns.
@@ -223,7 +233,7 @@ struct decision_tree::learner {
     // Exponential growth constant `k`, used to set the weight of the leaf
     // nodes of the decision tree via the function:
     //
-    //     f(x) = e^(k * x) - 1,     where x is in (0, 1]
+    //     f(x) = e^(k * x) - 1,     where x is in [0, 1]
     //
     // Here `x` is the purity of the node (higher x = purer node), so a leaf
     // that is purer receives a larger weight. A larger `k` makes the weight
@@ -321,8 +331,8 @@ public:
 
     // Constructor.
     // Initializes the learner with a dataset and a configuration/grouping of
-    // the attributes and features.
-    learner(const dataset& _dataset, const config& _config);
+    // the attributes and features, as well as the per-sample weights.
+    learner(const dataset&, const config&, const weights&);
 };
 
 } // namespace PhantomX

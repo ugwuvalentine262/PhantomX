@@ -29,15 +29,16 @@
 //  divide() scores a candidate split by building, for each of the two
 //  branches, a matrix of sample sets (rows = leaf groups of the path,
 //  columns = targets) and asking Objective::solve() for the best selection of
-//  cells with the largest common intersection. See divide() for details.
+//  cells whose common intersection has the largest total sample weight. See
+//  divide() for details.
 //
 //  Conventions used throughout
 //  ---------------------------
 //    * `indexes` is a std::vector<int> that is assumed to be sorted,
 //      non-negative and free of repeated values.
-//    * `a & b` on two `indexes` returns the intersection of both vectors.
-//    * A score of -1 means "not computed / rejected". A split with score -1
-//      can never win against another split.
+//    * `set_intersect()` computes the intersection of two `indexes` values.
+//    * A score of 0 means "not computed / rejected". A valid split must improve
+//      on the score of its parent branch.
 //    * "true branch" == left branch == samples that share at least one
 //      attribute with the chosen feature group. "false branch" == right
 //      branch == samples that share none.
@@ -53,7 +54,7 @@
 #include <random>     // random feature selection
 
 #include "decision_tree.hpp"  // the learner declaration (and decision_tree)
-#include "objective.hpp"      // Objective::solve, Objective::Matrix
+#include "objective.hpp"      // Objective::solve and weighted objective types
 
 namespace PhantomX {
 
@@ -184,38 +185,82 @@ void decision_tree::learner::add_node(int _node_idx,
 // and as an entry in leafs_ (which holds its `args` and its weight). The node
 // refers to its leaf record through `node.index`.
 void decision_tree::learner::add_leaf(int _node_idx, const branch& _branch) {
+    // Ensure that the node slot exists before writing the terminal-node
+    // metadata. Recursive construction assigns node indexes independently of
+    // vector growth, so a leaf may be written into a newly allocated slot.
     if (static_cast<std::size_t>(_node_idx) >= nodes_.size()) {
         nodes_.resize(_node_idx + 1);
     }
 
     auto& node = nodes_[_node_idx];
 
-    // A leaf has no children. Index 0 is the root, which can never be a child,
-    // so 0 serves as the "no child" marker.
+    // A leaf has no child nodes. The tree representation uses zero as the
+    // no-child marker; node zero is the root and is never referenced as a
+    // child, so this marker is unambiguous for child links.
     node.left = 0;
     node.right = 0;
+
+    // `group` and `index` describe a split only for internal nodes. They are
+    // not read for a leaf, but are reset here so the node cannot retain stale
+    // split metadata if a slot is reused.
     node.group = 0;
 
-    // For a leaf, `index` is the position of its record in leafs_. The record
-    // is appended below, so its position is the current size.
+    // The node stores an index into the separate leaf-record vector. The new
+    // record is appended below, so the current vector size is its future index.
     node.index = leafs_.size();
 
-    // The weight of a leaf depends on the purity of the branch:
-    //
-    //     purity = score / number of samples          (purity in (0, 1])
-    //     weight = e^(growth_ * purity) - 1
-    //
-    // The score is the size of the common intersection found by the objective
-    // function, so purity is the fraction of the branch's samples that belong
-    // to that intersection.
-    //
-    // _branch.score must be positive at this point, and the number of samples
-    // must be non-zero (otherwise this is a division by zero).
-    double purity = _branch.score / static_cast<double>(_branch.samples.size());
+    // Calculate the total effective weight of the branch. Each sample's
+    // configured learner weight is scaled by its certainty, matching the
+    // score contribution used while building the objective matrix.
+    auto weighted_sum = [&](const indexes& samples) {
+        return std::accumulate(samples.begin(), samples.end(), 0.0,
+            [&](double sum, int i) { return sum + weights_[i] * dataset_[i].certainty; });
+    };
 
+    // Calculate the branch's average certainty. This is kept separate from
+    // weighted_sum(): certainty influences both the branch normalization and
+    // each sample's effective contribution, while the learner weights only
+    // affect the latter.
+    auto weighted_avg = [&](const indexes& samples) {
+        auto total_weight = std::accumulate(samples.begin(), samples.end(), 0.0,
+            [&](double sum, int i) { return sum + dataset_[i].certainty; });
+        return total_weight > 0.0 ? total_weight / samples.size() : 0.0;
+    };
+
+    // Invalid or incomplete branches receive no prediction arguments and a
+    // zero leaf weight. These defaults are also safe for an unscored branch.
+    coordinates args;
+    double weight = 0.0;
+
+    // A branch is eligible for a meaningful leaf record when the
+    // objective selected one argument for every configured target (`k` matches
+    // the number of configured argument groups) and the branch has a positive
+    // objective score. Otherwise it remains an empty, zero-weight leaf.
+    if (_branch.k == config_.args.size() &&  _branch.score > 0.0) {
+        // Leaf weight is derived from branch purity:
+        //
+        //     purity = branch-average-certainty
+        //              * (objective-score / effective-branch-weight)
+        //     weight = e^(growth_ * purity) - 1
+        //
+        // The objective score is the total weight of the common sample records
+        // selected for this branch. The branch is expected to contain samples
+        // with a positive effective weight before this normalization occurs.
+        double purity = weighted_avg(_branch.samples)
+            * (_branch.score / weighted_sum(_branch.samples));
+
+        // `growth_` controls how sharply purity affects the final leaf weight.
+        // With positive growth and non-negative purity, the result is
+        // non-negative.
+        weight = std::exp(growth_ * purity) - 1.0;
+        args = _branch.args;
+    }
+
+    // Append the leaf payload after assigning its index to the node. Moving
+    // `args` transfers the selected branch coordinates without another copy.
     leafs_.emplace_back(decision_tree::leaf{
-        .args = _branch.args,
-        .weight = std::exp(growth_ * purity) - 1.0,
+        .args = std::move(args),
+        .weight = weight,
     });
 }
 
@@ -316,8 +361,9 @@ decision_tree::learner::state::group::group(const config::group& _a,
                                             decision_tree::learner::state::group& _b,
                                             int _b_index)
     : parent(_b.leaf ? _b_index : -1),
-      indices(_a.indexes & _b.indices),
-      leaf(true) {
+      leaf(true)
+{
+    set_intersect(_a.indexes, _b.indices, indices);
     _b.leaf = false;
 }
 
@@ -337,8 +383,8 @@ decision_tree::learner::state::group::group(const indexes& _indexes)
 // specified path position (`_index`), and returns the resulting split.
 //
 // How a sample is routed:
-//   intersect = (attributes of the sample's group at `_index`)
-//               & (attributes of feature group `_group`)
+//   intersect = the set intersection of the sample's group at `_index` and
+//               feature group `_group`
 //   - intersect is empty     -> the sample goes to the RIGHT ("false") branch
 //   - intersect is non-empty -> the sample goes to the LEFT ("true") branch
 //
@@ -366,18 +412,18 @@ decision_tree::learner::state::group::group(const indexes& _indexes)
 //   will have once apply() appends it: the current length of the path.
 //
 //   Objective::solve() selects one cell per requested row (no two in the same
-//   column) so that the intersection of the selected cells is as large as
-//   possible. The learner requests min(k, number of rows) cells, where k is
+//   column) so that the total weight of the common sample records is as large
+//   as possible. The learner requests min(k, number of rows) cells, where k is
 //   the number of target columns. Therefore every row is represented when
 //   there are enough target columns; when there are more rows than columns,
 //   the objective performs a partial matching and some rows are intentionally
-//   left unassigned. The size of the common intersection is the branch score,
+//   left unassigned. The weighted sum of the common sample records is the
+//   branch score,
 //   and the selected cells become the branch's `args`. The score of the split
 //   is the sum of the scores of its two branches.
 //
-// A rejected split (too few samples, an empty branch, a branch below the
-// minimum leaf size) is returned with the default score of -1, which can
-// never beat another split.
+// A rejected split (too few samples, an empty branch, or a branch below the
+// minimum leaf size) is returned with the default score of 0.
 decision_tree::learner::split decision_tree::learner::divide(const indexes& _samples,
                                                              const state& _state,
                                                              int _group,
@@ -398,6 +444,9 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
 
     // Number of targets (columns of the matrices).
     int k = config_.args.size();
+
+    // intersect would be computed to this buffer.
+    indexes temp;
 
     // Positions, in the decision path, of the groups that make up the rows of
     // each matrix. Entry r belongs to row r.
@@ -426,19 +475,23 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
 
     // The matrices handed to Objective::solve(): one row per entry of the
     // matching vector above, one column per target.
-    Objective::Matrix left(left_leafs.size(), std::vector<indexes>(k));
-    Objective::Matrix right(right_leafs.size(), std::vector<indexes>(k));
+    Objective::matrix left(left_leafs.size(), std::vector<Objective::set>(k));
+    Objective::matrix right(right_leafs.size(), std::vector<Objective::set>(k));
 
     // Adds `_sample` to every cell of row `_row` of `_matrix` whose column
     // (target h) is compatible with the group whose indexes are `_indices`:
     // the group of the sample's target h must share at least one index with it.
-    auto add_to_row = [&](Objective::Matrix& _matrix,
+    auto add_to_row = [&](Objective::matrix& _matrix,
                           std::size_t _row,
                           int _sample,
                           const indexes& _indices) {
+        Objective::element element {.sample = _sample
+            , .score = dataset_[_sample].certainty * weights_[_sample]
+        };
         for (int h = 0; h < k; h++) {
-            if (!(config_.y[dataset_[_sample].y[h]].indexes & _indices).empty()) {
-                _matrix[_row][h].push_back(_sample);
+            if (!set_intersect(_indices,
+                config_.y[dataset_[_sample].y[h]].indexes, temp).empty()) {
+                _matrix[_row][h].push_back(element);
             }
         }
     };
@@ -447,7 +500,7 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
         auto& path = _state.paths[sample];
 
         // The attributes this sample has in common with the feature group.
-        auto intersect = path[_index].indices & config_.x[_group].indexes;
+        const indexes& intersect = set_intersect(path[_index].indices, config_.x[_group].indexes, temp);
 
         // Route the sample (once) to the right branch if it shares no
         // attribute with the feature group, otherwise to the left branch,
@@ -498,22 +551,25 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
     // Replaces the row (`.x`) of every selected cell by the position, in the
     // decision path, of the group that row stood for. The column (`.y`) is
     // untouched.
-    auto to_path_positions = [](coordinates& _selected, const std::vector<int>& _leafs) {
+    auto replace_positions = [](coordinates& _selected, const std::vector<int>& _leafs) {
         for (auto& cell : _selected) {
             cell.x = _leafs[cell.x];
         }
     };
-    to_path_positions(r_res.selectedIndices, right_leafs);
-    to_path_positions(l_res.selectedIndices, left_leafs);
+
+    replace_positions(r_res.selected_indices, right_leafs);
+    replace_positions(l_res.selected_indices, left_leafs);
 
     // Right (false) branch.
-    split.right.score = r_res.intersectionSize;
-    split.right.args = r_res.selectedIndices;
+    split.right.score = Objective::result::weighted_sum(r_res.common_elements);
+    split.right.args = r_res.selected_indices;
+    split.right.k = r_res.k;
     split.right.true_branch = false;
 
     // Left (true) branch.
-    split.left.score = l_res.intersectionSize;
-    split.left.args = l_res.selectedIndices;
+    split.left.score = Objective::result::weighted_sum(l_res.common_elements);
+    split.left.args = l_res.selected_indices;
+    split.left.k = l_res.k;
     split.left.true_branch = true;
 
     // Quality of the whole split, and what it was made on.
@@ -578,9 +634,10 @@ decision_tree decision_tree::learner::learn(indexes _samples) {
 // configuration/grouping of the attributes and features. The hyper-parameters
 // keep their defaults (constraints disabled, growth_ = 2.5) until set through
 // the set_* functions below.
-decision_tree::learner::learner(const dataset& _dataset, const config& _config)
+decision_tree::learner::learner(const dataset& _dataset, const config& _config, const weights& _weights)
     : dataset_(_dataset),
-      config_(_config) {}
+      config_(_config),
+      weights_(_weights) {}
 
 // ============================================================================
 // Hyper-parameter setters
