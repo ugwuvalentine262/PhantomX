@@ -112,6 +112,10 @@ struct decision_tree::thinker {
         // valid until this result is modified or destroyed.
         const std::map<label, double>& predictions() const;
 
+        // Removes all predicted labels and weights. The result remains valid
+        // and reusable after this call.
+        void clear();
+
         // Adds every label/weight pair in `other` to this result. This is the
         // explicit accumulation operation for combining separate prediction
         // results; individual leaf-generated labels use `add_prediction()` and

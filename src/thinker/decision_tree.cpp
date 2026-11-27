@@ -67,6 +67,13 @@ decision_tree::thinker::result::predictions() const {
     return predictions_;
 }
 
+// Removes all stored predictions while leaving the result object reusable.
+// `std::map::clear()` may retain implementation-specific allocation resources
+// for the map, avoiding unnecessary churn when the result is reused.
+void decision_tree::thinker::result::clear() {
+    predictions_.clear();
+}
+
 // Combines another result into this one. Unlike add_prediction(), which
 // assigns the exact weight produced by one leaf, this operator is intended for
 // callers combining independently produced prediction results.
