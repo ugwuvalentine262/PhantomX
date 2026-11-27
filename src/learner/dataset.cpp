@@ -18,10 +18,10 @@
 //
 //    where, for every entry:
 //
-//      - element 0 ("u") is the uncertainty: a JSON number in the half-open
+//      - element 0 ("c") is the certainty: a JSON number in the half-open
 //        interval (0, 1]. Any JSON number notation is accepted (`1`, `1.0`,
 //        `0.5`, `0.001`, `1E-2`, `1e-1`, ...), as long as the value is
-//        greater than 0 and at most 1. It is stored in `sample::uncertainty`.
+//        greater than 0 and at most 1. It is stored in `sample::certainty`.
 //
 //      - element 1 ("y") is an array of exactly `k` strings, with `k` being
 //        `config::args.size()`. Each string is a label key. It is passed
@@ -62,7 +62,7 @@ using json = nlohmann::json;
 namespace PhantomX {
 
 // ----------------------------------------------------------------------------
-// read_uncertainty  (file-local helper)
+// read_certainty  (file-local helper)
 //
 // Validates that a JSON value is a number in the half-open interval (0, 1]
 // and, if so, stores it in `out`.
@@ -92,7 +92,7 @@ namespace PhantomX {
 // Linkage:
 //   `static`, so the helper is private to this translation unit.
 // ----------------------------------------------------------------------------
-static std::string read_uncertainty(const json& value, double& out) {
+static std::string read_certainty(const json& value, double& out) {
 
     // --- Step 1: reject anything that is not a number ----------------------
 
@@ -114,7 +114,7 @@ static std::string read_uncertainty(const json& value, double& out) {
     const double candidate = value.get<double>();
 
     if (!(candidate > 0.0 && candidate <= 1.0)) {
-        return "uncertainty must be greater than 0 and at most 1";
+        return "certainty must be greater than 0 and at most 1";
     }
 
     out = candidate;
@@ -249,7 +249,7 @@ std::size_t dataset::size() const {
 //   2. Check the configuration, and the stream state.
 //   3. Parse the string as JSON.
 //   4. Validate the document's overall shape (non-empty array).
-//   5. For every entry, validate its shape, convert the uncertainty ("u"),
+//   5. For every entry, validate its shape, convert the certainty ("c"),
 //      convert the labels ("y") into target codes, convert the attribute
 //      indices ("x"), and append the resulting `sample`.
 //   6. Only when every entry was accepted, mark the load as successful.
@@ -340,7 +340,7 @@ dataset::dataset(std::istream& _is, const config& _config) {
             // the user can find the offending spot in the input file.
             const std::string where = "entry " + std::to_string(i);
 
-            // --- Shape of the entry: [ u, [labels...], [attributes...] ] ----
+            // --- Shape of the entry: [ c, [labels...], [attributes...] ] ----
 
             if (!entry.is_array()) {
                 throw ValidationError(where + ": entry must be an array.");
@@ -360,22 +360,22 @@ dataset::dataset(std::istream& _is, const config& _config) {
             }
 
             // Short names matching the notation used by `sample`:
-            //   u - the uncertainty,
+            //   c - the certainty,
             //   y - the label keys (targets),
             //   x - the attribute indices (features).
-            const json& u = entry[0];
+            const json& c = entry[0];
             const json& y = entry[1];
             const json& x = entry[2];
 
-            // --- Uncertainty: a number in (0, 1] ----------------------------
+            // --- Certainty: a number in (0, 1] ----------------------------
 
-            double uncertainty = 0.0;
+            double certainty = 0.0;
 
-            // Strict range validation; see read_uncertainty().
-            const std::string u_problem = read_uncertainty(u, uncertainty);
-            if (!u_problem.empty()) {
+            // Strict range validation; see read_certainty().
+            const std::string c_problem = read_certainty(c, certainty);
+            if (!c_problem.empty()) {
                 throw ValidationError(
-                    where + ", element 0: " + u_problem + ".");
+                    where + ", element 0: " + c_problem + ".");
             }
 
             // --- Shape of the label array ----------------------------------
@@ -401,7 +401,7 @@ dataset::dataset(std::istream& _is, const config& _config) {
             // keeps that meaning.
             sample sample;
 
-            sample.uncertainty = uncertainty;
+            sample.certainty = certainty;
 
             // --- Labels: strings -> 16-bit target codes --------------------
             //

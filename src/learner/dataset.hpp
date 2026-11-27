@@ -8,7 +8,7 @@
 //  Role of this type:
 //
 //    - `dataset` holds a flat vector of `sample`s. Each sample carries an
-//      uncertainty ("u"), the attribute indices that describe the sample
+//      certainty ("u"), the attribute indices that describe the sample
 //      ("x") and the packed target values ("y").
 //
 //    - It is loaded once from a stream against a `config`, which tells it how
@@ -22,7 +22,7 @@
 //
 //    Each `sample` has three parts:
 //
-//      - `uncertainty`: how uncertain this sample is, a `double` in the
+//      - `certainty`: how uncertain this sample is, a `double` in the
 //        half-open interval (0, 1]. Zero is excluded; one is allowed.
 //      - `x`: the attribute indices that describe this sample.
 //      - `y`: a fixed-size array of up to eight 16-bit target codes, one
@@ -62,17 +62,17 @@ struct dataset {
     // ------------------------------------------------------------------------
     // sample
     //
-    // A single training example: its uncertainty, the attribute indices that
+    // A single training example: its certainty, the attribute indices that
     // describe it, and its (up to eight) packed target codes.
     // ------------------------------------------------------------------------
     struct sample {
 
-        // The uncertainty of this sample, in the half-open interval (0, 1].
+        // The certainty of this sample, in the half-open interval (0, 1].
         //
         // The loader guarantees the range for every sample it produces.
-        // The default of 1.0 (maximum uncertainty) only matters for a
+        // The default of 1.0 (maximum certainty) only matters for a
         // `sample` constructed by hand.
-        double uncertainty = 1.0;
+        double certainty = 1.0;
 
         // The attribute indices describing this sample.
         indexes x;
