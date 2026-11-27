@@ -1,9 +1,10 @@
 // ============================================================================
-//  Declares `boost::learner`, the class that trains a gradient-boosted
-//  ensemble of decision trees.
+//  Declares the planned `boost::learner` interface for training a
+//  gradient-boosted ensemble of decision trees. The implementation is not yet
+//  complete.
 // ============================================================================
 //
-//  How the pieces fit together:
+//  Planned design:
 //
 //    1. A `boost::learner` owns the boosting hyper-parameters (the same
 //       tree-level knobs exposed by `decision_tree::learner`, plus a

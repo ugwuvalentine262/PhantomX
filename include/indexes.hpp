@@ -12,14 +12,14 @@
 //    - `indexes`: a set of integer indices, stored as a vector sorted
 //      ascending and free of repeats.
 //
-//    - `operator&`: set intersection on `indexes`, exploiting the sorted
+//    - `set_intersect`: set intersection on `indexes`, exploiting the sorted
 //      and distinct invariant.
 //
 //  Invariant on `indexes`:
 //
 //    Throughout the library, an `indexes` value is expected to be sorted
 //    ascending, contain no repeats, and contain only non-negative values.
-//    This invariant is what makes `operator&` a linear-time two-pointer
+//    This invariant is what makes `set_intersect` a linear-time two-pointer
 //    merge, and what lets `decision_tree::learner`'s `state` and `group`
 //    logic reason about subsets cheaply. It is NOT enforced by the type
 //    itself — callers must maintain it.
@@ -67,8 +67,8 @@ using indexes = std::vector<int>; // sorted, ascending, distinct, nonnegative, n
 // ----------------------------------------------------------------------------
 // set_intersect()
 //
-// Returns a new set of indexes formed from the intersection of this object
-// and the indexes specified as arguments to this function.
+// Replaces `result` with the intersection of the two specified index sets and
+// returns `result`.
 //
 // Two-pointer intersection, O(|a| + |b|). Inputs sorted & distinct => output
 // too. Exploits the `indexes` invariant: because both inputs are sorted and

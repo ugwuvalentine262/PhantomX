@@ -11,10 +11,9 @@
 //      trained state (the goal id and the ensemble of decision trees) and
 //      knows how to serialize itself.
 //
-//    - Training is delegated to the nested `boost::learner`, and inference
-//      is delegated to the nested `boost::thinker`. Both are forward
-//      declared here and defined in their own headers so that this header
-//      stays lightweight and free of the heavy learning/prediction logic.
+//    - Training is planned for the nested `boost::learner`, and inference is
+//      planned for the nested `boost::thinker`. Both are forward declared here;
+//      boosting training and prediction are not implemented yet.
 //
 //    - Because `learner` and `thinker` are nested types of `boost`, they
 //      have access to `boost`'s private members (`goal_id_`, `ensemble_`)
@@ -37,10 +36,9 @@ namespace PhantomX {
 // ----------------------------------------------------------------------------
 // boost
 //
-// An implementation of a gradient boosting algorithm for the machine
-// learning model. This type is designed to be used in conjunction with other
-// components of the PhantomX library to provide a complete machine learning
-// solution.
+// The model container for a planned gradient-boosting algorithm. Training and
+// prediction are not implemented yet; this type currently owns model state and
+// serialization only.
 //
 // Concretely, a `boost` instance represents a single trained gradient-boosted
 // model for one goal: it owns the target/goal identifier and the sequence of
