@@ -84,15 +84,17 @@ constexpr char magic[] = "PHANTOMX-DT";
 
 // The version allows the on-disk format to evolve later. If the layout changes,
 // a new version can be introduced and old files can be rejected or migrated
-// explicitly instead of being read incorrectly. Version 2 adds a payload-size
-// field and a SHA-256 digest after the payload.
-constexpr std::uint32_t format_version = 2;
+// explicitly instead of being read incorrectly. Version 2 added a
+// payload-size field and a SHA-256 digest after the payload. Version 3 stores
+// leaf weights as doubles instead of floats.
+constexpr std::uint32_t format_version = 3;
 constexpr std::size_t digest_size = picosha2::k_digest_size;
 
 // Writes one trivially-copyable value as raw bytes.
 //
 // The decision_tree node fields use fixed-width integer types, and the leaf
-// weight is a float. This is a compact local model format. It is intentionally
+// weight is a double. This preserves the learner's computed precision in the
+// local model format.
 // not presented as a portable wire protocol because byte order and floating
 // point representation are not normalized here.
 template <typename T>
@@ -208,7 +210,7 @@ bool decision_tree::leaf::write(std::ostream& _os) const
 bool decision_tree::leaf::read(std::istream& _is)
 {
     coordinates loaded_args;
-    float loaded_weight = 0.0f;
+    double loaded_weight = 0.0;
     if (!read_coordinates(_is, loaded_args) || !read_value(_is, loaded_weight)) {
         return false;
     }

@@ -11,10 +11,10 @@
 //      structure (internal split nodes + leaf nodes) and knows how to
 //      serialize itself. It does not train and it does not predict.
 //
-//    - Training is delegated to the nested `decision_tree::learner`, and
-//      prediction is delegated to the nested `decision_tree::thinker`. Both
-//      are forward declared here and defined in their own headers so this
-//      header stays lightweight.
+//    - Training is delegated to the nested `decision_tree::learner`.
+//      Prediction is planned for `decision_tree::thinker`, but is not
+//      implemented yet. Both types are kept separate from this lightweight
+//      model declaration.
 //
 //    - Because `learner` and `thinker` are nested types of `decision_tree`,
 //      they have access to the private `nodes_` / `leafs_` containers and
@@ -105,8 +105,9 @@ struct decision_tree {
         coordinates args;
 
         // The degree of importance of the leaf. Typically the purity-based
-        // weight computed by the learner (e.g. via the `growth` constant).
-        float weight;
+        // Weight computed by the learner (e.g. via the `growth` constant).
+        // Double precision is retained through training and serialization.
+        double weight;
 
     public:
 
