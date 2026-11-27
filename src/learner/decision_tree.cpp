@@ -218,16 +218,6 @@ void decision_tree::learner::add_leaf(int _node_idx, const branch& _branch) {
             [&](double sum, int i) { return sum + weights_[i] * dataset_[i].certainty; }));
     };
 
-    // Calculate the branch's average certainty. This is kept separate from
-    // weighted_sum(): certainty influences both the branch normalization and
-    // each sample's effective contribution, while the learner weights only
-    // affect the latter.
-    auto weighted_avg = [&](const indexes& samples) {
-        auto total_weight = std::accumulate(samples.begin(), samples.end(), 0.0,
-            [&](double sum, int i) { return sum + dataset_[i].certainty; });
-        return total_weight > 0.0 ? total_weight / samples.size() : 0.0;
-    };
-
     // Invalid or incomplete branches receive no prediction arguments and a
     // zero leaf weight. These defaults are also safe for an unscored branch.
     coordinates args;
@@ -240,15 +230,13 @@ void decision_tree::learner::add_leaf(int _node_idx, const branch& _branch) {
     if (_branch.k == config_.args.size() &&  _branch.score > 0.0) {
         // Leaf weight is derived from branch purity:
         //
-        //     purity = branch-average-certainty
-        //              * (objective-score / effective-branch-weight)
+        //     purity = objective-score / effective-branch-weight
         //     weight = e^(growth_ * purity) - 1
         //
         // The objective score is the total weight of the common sample records
         // selected for this branch. The branch is expected to contain samples
         // with a positive effective weight before this normalization occurs.
-        double purity = weighted_avg(_branch.samples)
-            * (_branch.score / weighted_sum(_branch.samples));
+        double purity = _branch.score / weighted_sum(_branch.samples);
 
         // `growth_` controls how sharply purity affects the final leaf weight.
         // With positive growth and non-negative purity, the result is
