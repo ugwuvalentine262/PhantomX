@@ -60,12 +60,12 @@ using coordinates = std::vector<coordinate>;
 //
 // Invariant: sorted ascending, distinct, non-negative, non-repeating.
 // Maintained by callers; not enforced by the type. The sorted-and-distinct
-// property is relied upon by `operator&` and by the decision-tree learner.
+// property is relied upon by `set_intersect` and by the decision-tree learner.
 // ----------------------------------------------------------------------------
 using indexes = std::vector<int>; // sorted, ascending, distinct, nonnegative, nonrepeating
 
 // ----------------------------------------------------------------------------
-// operator&
+// set_intersect()
 //
 // Returns a new set of indexes formed from the intersection of this object
 // and the indexes specified as arguments to this function.
@@ -74,14 +74,10 @@ using indexes = std::vector<int>; // sorted, ascending, distinct, nonnegative, n
 // too. Exploits the `indexes` invariant: because both inputs are sorted and
 // distinct, a single forward pass suffices, and the output inherits the
 // same sorted-and-distinct property.
-//
-// NOTE: this is an overload of the bitwise-AND operator on `indexes`. It is
-// used deliberately as set-intersection sugar (e.g. `g1.indexes & g2.indexes`
-// in `decision_tree::learner::group`'s constructor). It is not bitwise AND.
 // ----------------------------------------------------------------------------
-inline indexes operator&(const indexes& _a, const indexes& _b)
+inline const indexes& set_intersect(const indexes& _a, const indexes& _b, indexes& result)
 {
-    indexes result;
+    result.clear();
     // The intersection cannot be larger than the smaller of the two inputs,
     // so reserve that much to avoid reallocation.
     result.reserve(std::min(_a.size(), _b.size()));
