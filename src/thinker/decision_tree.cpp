@@ -98,6 +98,20 @@ decision_tree::thinker::thinker(const decision_tree& _model,
       config_(_config) {}
 
 // ----------------------------------------------------------------------------
+// decision_tree::thinker::set_max_predictions
+// ----------------------------------------------------------------------------
+//
+// Updates the limit that bounds the Cartesian-product expansion at a leaf. A
+// limit of zero would make every prediction empty, so only strictly positive
+// values are accepted. A rejected value aborts the operation and leaves the
+// previously stored limit untouched.
+bool decision_tree::thinker::set_max_predictions(int _value) {
+    if (_value <= 0) return false;
+    max_predictions_ = static_cast<std::size_t>(_value);
+    return true;
+}
+
+// ----------------------------------------------------------------------------
 // decision_tree::thinker::predict
 // ----------------------------------------------------------------------------
 //
@@ -111,7 +125,8 @@ decision_tree::thinker::thinker(const decision_tree& _model,
 //   3. At a leaf, match each configured argument row against the path row
 //      referenced by the corresponding leaf coordinate.
 //   4. Expand the matching hashes as a Cartesian product. Each complete label
-//      receives exactly the leaf's weight.
+//      receives exactly the leaf's weight. Expansion stops once the result
+//      holds `max_predictions_` labels, and those labels are returned.
 //
 // Malformed in-memory models and incomplete leaf data return an empty result.
 decision_tree::thinker::output
@@ -216,6 +231,12 @@ decision_tree::thinker::predict(const input& _sample,
             // Choose exactly one hash from every data row. The recursive
             // expansion produces the Cartesian product of all compatible
             // choices. Every complete label receives exactly leaf.weight.
+            //
+            // The product can be very large, so expansion is bounded by
+            // `max_predictions_`. Labels are unique, so the result size equals
+            // the number of labels produced. The size is checked before each
+            // descent: once it reaches the limit, every active loop returns
+            // immediately and the labels already computed are kept.
             label predicted;
             auto append_combinations = [&](auto&& self, std::size_t row) -> void {
                 if (row == data.size()) {
@@ -224,6 +245,7 @@ decision_tree::thinker::predict(const input& _sample,
                 }
 
                 for (std::uint64_t hash : data[row]) {
+                    if (output.predictions().size() >= max_predictions_) return;
                     predicted.args[row] = hash;
                     self(self, row + 1);
                 }

@@ -27,13 +27,25 @@
 //  weight. `std::map` keeps labels ordered. Each generated label is assigned
 //  the exact weight of the leaf that produced it.
 //
+//  Prediction limit
+//  ----------------
+//  Expanding a leaf is a Cartesian product over the configured argument rows,
+//  so the number of labels can grow multiplicatively. A thinker therefore
+//  carries a maximum prediction count (30 by default, adjustable through
+//  `set_max_predictions()`). Expansion stops as soon as the result holds that
+//  many labels, and the labels produced so far are returned. Every label of a
+//  leaf has the same weight, so no label is better than another and no
+//  ranking is applied.
+//
 // ============================================================================
 
 #ifndef DECISION_TREE_THINKER_HPP
 #define DECISION_TREE_THINKER_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
+#include <vector>
 
 #include <decision_tree.hpp>
 
@@ -170,6 +182,17 @@ private:
     // coordinates. The thinker does not own this object.
     const config& config_;
 
+    // ------------------------------------------------------------------------
+    // Prediction limit
+    // ------------------------------------------------------------------------
+
+    // Maximum number of labels a single prediction may produce. It bounds the
+    // combinatorial explosion of the Cartesian product built at a leaf: once
+    // the result holds this many labels, expansion stops and the labels
+    // already computed are returned. Always greater than zero; the default is
+    // 30 and it is changed through `set_max_predictions()`.
+    std::size_t max_predictions_ = 30;
+
 public:
 
     // ------------------------------------------------------------------------
@@ -179,6 +202,13 @@ public:
     // Binds the thinker to an existing trained model and its configuration.
     // Both references must remain valid for the thinker's entire lifetime.
     thinker(const decision_tree& _model, const config& _config);
+
+    // Sets the maximum number of labels a prediction may produce.
+    //
+    // Returns true and stores `_value` if it is greater than zero. Otherwise
+    // the operation is aborted: the stored limit is left unchanged and false
+    // is returned.
+    bool set_max_predictions(int _value);
 
     // Predicts labels for a sample represented by its sorted attribute indexes.
     // This convenience overload creates per-call scratch storage and delegates
