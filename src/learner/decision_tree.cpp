@@ -52,6 +52,7 @@
 #include <cmath>      // std::exp
 #include <numeric>    // std::iota
 #include <random>     // random feature selection
+#include <limits>     // std::numeric_limits
 
 #include "decision_tree.hpp"  // the learner declaration (and decision_tree)
 #include "objective.hpp"      // Objective::solve and weighted objective types
@@ -86,8 +87,8 @@ int decision_tree::learner::recursive_greedy_splitting(state& _state,
     // Claim the next free node index for this call.
     int node_idx = node_idx_++;
 
-    // The best split found so far. A default split has score -1, so any
-    // successfully scored split beats it.
+    // The best split found so far. A default split has score 0, so only a
+    // positively scoring candidate can become the best split.
     split best_split;
 
     // Narrow the state down to the branch we are currently working on.
@@ -129,8 +130,8 @@ int decision_tree::learner::recursive_greedy_splitting(state& _state,
 
     // Did we find a good split? A split is only accepted if the combined score
     // of its two branches is strictly greater than the score of the branch
-    // being split. For the root, _branch.score is -1, so any scored split
-    // is accepted.
+    // being split. The root branch has score 0, so only a split with a positive
+    // score is accepted at the root.
     if (best_split.score > _branch.score) {
         // The evaluation order of the two recursive calls is unspecified in
         // C++. This does not matter: each call returns its own node index, so
@@ -145,7 +146,7 @@ int decision_tree::learner::recursive_greedy_splitting(state& _state,
     }
 
     // Restore the state so the caller can continue exploring other branches.
-    _state.undo(_split, _branch);
+    _state.undo(_branch);
     return node_idx;
 }
 
@@ -213,8 +214,8 @@ void decision_tree::learner::add_leaf(int _node_idx, const branch& _branch) {
     // configured learner weight is scaled by its certainty, matching the
     // score contribution used while building the objective matrix.
     auto weighted_sum = [&](const indexes& samples) {
-        return std::accumulate(samples.begin(), samples.end(), 0.0,
-            [&](double sum, int i) { return sum + weights_[i] * dataset_[i].certainty; });
+        return std::min(std::numeric_limits<double>::min(), std::accumulate(samples.begin(), samples.end(), 0.0,
+            [&](double sum, int i) { return sum + weights_[i] * dataset_[i].certainty; }));
     };
 
     // Calculate the branch's average certainty. This is kept separate from
@@ -311,8 +312,7 @@ void decision_tree::learner::state::apply(const config& _config,
 // removed from its path, and the parent group it was formed from (if it
 // recorded one in `parent`) becomes a leaf again. As in apply(), the right
 // branch never changed the state, so nothing is undone for it.
-void decision_tree::learner::state::undo(const decision_tree::learner::split& _split,
-                                         const branch& _branch) {
+void decision_tree::learner::state::undo(const branch& _branch) {
     if (!_branch.true_branch) {
         return;
     }
@@ -499,8 +499,11 @@ decision_tree::learner::split decision_tree::learner::divide(const indexes& _sam
     for (auto sample : _samples) {
         auto& path = _state.paths[sample];
 
-        // The attributes this sample has in common with the feature group.
-        const indexes& intersect = set_intersect(path[_index].indices, config_.x[_group].indexes, temp);
+        // Copy the intersection out of the scratch buffer. `add_to_row()` also
+        // uses `temp`, so retaining a reference here would allow matrix
+        // construction to overwrite the intersection for the new left group.
+        indexes intersect;
+        set_intersect(path[_index].indices, config_.x[_group].indexes, intersect);
 
         // Route the sample (once) to the right branch if it shares no
         // attribute with the feature group, otherwise to the left branch,

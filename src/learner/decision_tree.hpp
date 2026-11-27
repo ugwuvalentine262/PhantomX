@@ -163,7 +163,7 @@ struct decision_tree::learner {
 
         // Retracts a split that was previously applied to the state. The
         // state returns to exactly what it was before the split was applied.
-        void undo(const split& _split, const branch& _branch);
+        void undo(const branch& _branch);
 
         // Constructor.
         // Initializes the state from a dataset.
