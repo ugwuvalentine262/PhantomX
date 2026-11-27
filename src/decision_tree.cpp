@@ -43,6 +43,12 @@
 //  successfully parsed, and free of trailing bytes. A failed read therefore
 //  leaves the existing tree unchanged.
 //
+//  A decoded tree must also pass semantic validation before it is committed.
+//  The node graph must be a single connected tree rooted at node zero, and the
+//  leaf records must be well formed: non-negative weights, one shared
+//  coordinate count, unique non-negative `x` values, and unique `y` values that
+//  cover [0, coordinate count). See is_valid_tree() and is_valid_leaf().
+//
 //  The format stores raw fixed-width integer and floating-point representations.
 //  It is intended as a compact local model format, not a normalized
 //  cross-platform wire protocol.
@@ -126,6 +132,53 @@ std::vector<unsigned char> digest(const std::string& payload)
     return result;
 }
 
+// Validates one decoded leaf record.
+//
+// A leaf is valid when all of the following hold:
+//
+//   - its weight is not negative (a NaN weight is rejected as well, because
+//     NaN is neither negative nor non-negative and would defeat a plain
+//     "weight < 0" test);
+//   - its coordinate count equals `expected_size`, the count shared by every
+//     leaf in the tree;
+//   - every coordinate `x` is non-negative and no two coordinates share the
+//     same `x`;
+//   - every coordinate `y` lies in [0, args.size()) and no two coordinates
+//     share the same `y`. Since there are exactly args.size() coordinates, the
+//     `y` values are therefore a permutation of 0 .. args.size() - 1.
+//
+// The `x` values are checked by sorting a copy and looking for neighbours that
+// compare equal. The `y` values are checked with a seen-table, which is
+// possible because their range is bounded by the coordinate count.
+bool is_valid_leaf(const decision_tree::leaf& leaf, std::size_t expected_size)
+{
+    // Written as a negated >= so that NaN fails the test.
+    if (!(leaf.weight >= 0.0)) return false;
+
+    const coordinates& args = leaf.args;
+    if (args.size() != expected_size) return false;
+
+    std::vector<bool> y_seen(args.size(), false);
+    std::vector<int> xs;
+    xs.reserve(args.size());
+
+    for (const coordinate& value : args) {
+        if (value.x < 0) return false;
+
+        if (value.y < 0 ||
+            static_cast<std::size_t>(value.y) >= args.size() ||
+            y_seen[static_cast<std::size_t>(value.y)]) {
+            return false;
+        }
+        y_seen[static_cast<std::size_t>(value.y)] = true;
+
+        xs.push_back(value.x);
+    }
+
+    std::sort(xs.begin(), xs.end());
+    return std::adjacent_find(xs.begin(), xs.end()) == xs.end();
+}
+
 // Validates the structural invariants of a decoded tree before it is exposed
 // through the public model object.
 //
@@ -135,6 +188,18 @@ std::vector<unsigned char> digest(const std::string& payload)
 // in-range entry in the separate leaf-record vector. Requiring every node and
 // leaf record to be referenced prevents disconnected nodes, duplicate child
 // references, dangling leaf indexes, and incomplete leaf tables.
+//
+// Parent counting alone does not prove the nodes form one tree: a closed loop
+// of nodes that only reference each other (for example node 1 -> node 2 -> node
+// 1) gives every member exactly one parent yet is cut off from the root. A
+// final traversal from the root therefore confirms that every node is reachable
+// and that no node is reached twice, which rules out cycles and shared
+// children.
+//
+// Finally, every leaf record is checked with is_valid_leaf(): weights are not
+// negative, all leaves have the same coordinate count (taken from the first
+// leaf), and the coordinates of each leaf have unique non-negative `x` values
+// and unique `y` values covering [0, coordinate count).
 bool is_valid_tree(const decision_tree::nodes& nodes,
                    const decision_tree::leafs& leafs)
 {
@@ -187,6 +252,42 @@ bool is_valid_tree(const decision_tree::nodes& nodes,
     // Every serialized leaf record must correspond to exactly one leaf node.
     for (bool seen : leaf_seen) {
         if (!seen) return false;
+    }
+
+    // Every node must be reachable from the root. The parent checks above do
+    // not rule out a disconnected cycle, which would make a traversal loop
+    // forever. Walk from the root, visiting each node once: reaching a node a
+    // second time means a cycle or a shared child, and visiting fewer nodes
+    // than exist means some are cut off from the root. All child indexes were
+    // range-checked in the loop above, so indexing with them here is safe.
+    std::vector<bool> reached(nodes.size(), false);
+    std::vector<std::size_t> pending{0};
+    reached[0] = true;
+    std::size_t visited = 0;
+
+    while (!pending.empty()) {
+        const std::size_t current = pending.back();
+        pending.pop_back();
+        ++visited;
+
+        const auto& node = nodes[current];
+        if (node.left == 0 && node.right == 0) continue; // terminal slot
+
+        for (const std::int32_t child : {node.left, node.right}) {
+            const auto next = static_cast<std::size_t>(child);
+            if (reached[next]) return false;
+            reached[next] = true;
+            pending.push_back(next);
+        }
+    }
+
+    if (visited != nodes.size()) return false;
+
+    // Validate the leaf records. All leaves must share the coordinate count of
+    // the first leaf; leafs is known to be non-empty from the first check.
+    const std::size_t expected_size = leafs.front().args.size();
+    for (const auto& leaf : leafs) {
+        if (!is_valid_leaf(leaf, expected_size)) return false;
     }
 
     return true;
@@ -360,8 +461,9 @@ bool decision_tree::write(std::ostream& _os) const
 //
 // The method is transactional: it reads into local vectors and only moves them
 // into nodes_ and leafs_ after every record succeeds. If the stream is invalid,
-// truncated, has the wrong signature/version, or requests an impossible
-// allocation, the existing tree remains unchanged.
+// truncated, has the wrong signature/version, requests an impossible
+// allocation, or decodes to a malformed tree or malformed leaf records, the
+// existing tree remains unchanged.
 bool decision_tree::read(std::istream& _is)
 {
 	// Read and validate the fixed-size signature first.
