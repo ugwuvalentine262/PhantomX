@@ -1,25 +1,23 @@
 // ============================================================================
-//  Declares the planned `boost::learner` interface for training a
-//  gradient-boosted ensemble of decision trees. The implementation is not yet
-//  complete.
+//  Declares the planned `boost::learner` interface for training an ensemble
+//  of decision trees using our custom boosting-based algorithm (this is NOT
+//  gradient boosting). The implementation is not yet complete.
 // ============================================================================
 //
 //  Planned design:
 //
 //    1. A `boost::learner` owns the boosting hyper-parameters (the same
 //       tree-level knobs exposed by `decision_tree::learner`, plus a
-//       growth rate and population size) and exposes a single `learn()`
-//       entry point.
+//       growth rate, maximum population and minimum accuracy) and exposes a
+//       single `learn()` entry point.
 //
 //    2. `learn()` returns a fully trained `boost` model. Internally it
-//       populates that model's `ensemble_` one stage at a time; each stage
-//       fits a new decision tree to the current residuals /
-//       pseudo-residuals of the goal identified by `goal_id_`.
+//       populates that model's `ensemble_` one stage at a time, growing at
+//       most `max_population_` trees for the goal identified by `goal_id_`.
 //
 //    3. Each individual tree is produced by `decision_tree::learner::learn()`,
 //       which already accepts a subset of sample indexes — so a boosting
-//       round can reuse it directly, provided the tree learner is pointed at
-//       the current residuals rather than the raw target.
+//       round can reuse it directly.
 //
 // ============================================================================
 
@@ -39,9 +37,9 @@ namespace PhantomX {
 // ----------------------------------------------------------------------------
 // boost::learner
 //
-// Our implementation of a gradient boosting learning algorithm. Declared as a
-// nested type of `boost` so it can populate the model's `ensemble_` vector
-// directly.
+// Our implementation of a custom boosting-based learning algorithm (not
+// gradient boosting). Declared as a nested type of `boost` so it can populate
+// the model's `ensemble_` vector directly.
 // ----------------------------------------------------------------------------
 class boost::learner {
 
@@ -97,13 +95,18 @@ class boost::learner {
     // used to weight leaf nodes by purity. Must be strictly positive
     // (enforced by `set_growth_rate()`). Default: 2.5.
     //
-    // NOTE: this is NOT the boosting shrinkage / learning-rate.
-    float growth = 2.5;
+    // NOTE: this is NOT a boosting shrinkage / learning-rate.
+    float growth_ = 2.5;
 
-    // The number of boosting stages to run, i.e. the number of trees grown
-    // in the ensemble. Must always be strictly positive (enforced by
-    // `set_population()`). Default: 20.
-    int population_ = 20;
+    // The maximum number of boosting stages to run, i.e. the upper bound on
+    // the number of trees grown in the ensemble. Must always be strictly
+    // positive (enforced by `set_max_population()`). Default: 20.
+    int max_population_ = 20;
+
+    // The minimum accuracy, expressed as a fraction in the range (0, 1].
+    // Must always lie in that range (enforced by `set_min_accuracy()`).
+    // Default: 0.5.
+    float min_accuracy_ = 0.5;
 
 public:
 
@@ -142,15 +145,57 @@ public:
     // disables the constraint).
     bool set_min_samples_split(int i);
 
-    // Sets `growth`, the exponential growth constant `k` in
+    // Sets `growth_`, the exponential growth constant `k` in
     // f(x) = e^(k * x) - 1 used to weight leaf nodes by purity.
     // Returns true iff `v` is strictly greater than 0, false otherwise.
     bool set_growth_rate(float v);
 
-    // Sets `population_`, the number of boosting stages / trees in the
-    // ensemble.
+    // Sets `max_population_`, the maximum number of boosting stages / trees
+    // in the ensemble.
     // Returns true iff `i` is strictly greater than 0, false otherwise.
-    bool set_population(int i);
+    bool set_max_population(int i);
+
+    // Sets `min_accuracy_`.
+    // Returns true iff `v` is in the range (0, 1] (strictly greater than 0
+    // and less than or equal to 1), false otherwise.
+    bool set_min_accuracy(float v);
+
+    // ------------------------------------------------------------------------
+    // Hyper-parameter getters
+    //
+    // Each getter is the counterpart of the setter of the same name and
+    // returns the value currently stored in the corresponding member. Getters
+    // never modify the learner and never fail.
+    // ------------------------------------------------------------------------
+
+    // Returns `max_features_`, the number of features considered while
+    // evaluating the quality of splits. A NEGATIVE value means "no limit":
+    // every feature is considered at every split. Default: -1 (disabled).
+    int get_max_features() const;
+
+    // Returns `min_samples_leaf_`, the minimum number of samples required at
+    // any leaf node. A NEGATIVE value means the constraint is ignored.
+    // Default: -1 (disabled).
+    int get_min_samples_leaf() const;
+
+    // Returns `min_samples_split_`, the minimum number of samples required at
+    // a node before it is eligible for splitting. A NEGATIVE value means the
+    // constraint is ignored. Default: -1 (disabled).
+    int get_min_samples_split() const;
+
+    // Returns `growth_`, the exponential growth constant `k` in
+    // f(x) = e^(k * x) - 1 used to weight leaf nodes by purity. The returned
+    // value is always strictly greater than 0. Default: 2.5.
+    float get_growth_rate() const;
+
+    // Returns `max_population_`, the maximum number of boosting stages /
+    // trees in the ensemble. The returned value is always strictly greater
+    // than 0. Default: 20.
+    int get_max_population() const;
+
+    // Returns `min_accuracy_`. The returned value is always in the range
+    // (0, 1]. Default: 0.5.
+    float get_min_accuracy() const;
 
     // ------------------------------------------------------------------------
     // Public interface
